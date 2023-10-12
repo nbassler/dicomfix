@@ -90,11 +90,12 @@ def main(args=None):
 
     parser = argparse.ArgumentParser(description='Modify ECLIPSE DICOM proton therapy treatment plans.')
     parser.add_argument('inputfile', help='input filename', type=str)
-    #  parser.add_argument('-i', '--input', required=True, help='Path to input DICOM file')
+
     parser.add_argument('-w', '--weights', required=False, help='Path to weights CSV file', default=None)
     parser.add_argument('-o', '--output', required=False, default="output.dcm", help='Path to output DICOM file')
 
     parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
+    parser.add_argument('-i', '--inspect', action='store_true', default=False, help='Print contents of dicom file exit')
     parser.add_argument('-tr4', '--tr4', action='store_true', default=False, help='prepare plan for TR4, this sets aproval, gantry, snout and treatment machine')
 
     parser.add_argument('-p', '--print', type=int, default=None, help='Number of random values to print for comparison')
@@ -121,6 +122,11 @@ def main(args=None):
         rescale_flag = True
     else:
         rescale_flag = False  #print("Error: No scaling factor is given for rescaling the plan or spots.")
+
+    if parsed_args.inspect:
+        d = pydicom.dcmread(parsed_args.inputfile)
+        print(d)
+        exit(0)
 
     dicom_data = pydicom.dcmread(parsed_args.inputfile)
     new_dicom_data = copy.deepcopy(dicom_data)
