@@ -1,8 +1,12 @@
+import sys
 import argparse
 import csv
 import random
-import pydicom
 import copy
+import logging
+import pydicom
+
+logger = logging.getLogger(__name__)
 
 def read_weights_from_csv(csv_file_path):
     weights = []
@@ -13,9 +17,9 @@ def read_weights_from_csv(csv_file_path):
     return weights
 
 def print_comparison(layer, scale_factor, original_weights, modified_weights, num_values):
-    print(f"\nLayer {layer}  Scale Factor {scale_factor}")
-    print("Original | Modified")
-    print("---------|---------")
+    logging.info(f"\nLayer {layer}  Scale Factor {scale_factor}")
+    logging.info("Original | Modified")
+    logging.info("---------|---------")
 
     if len(original_weights) >= num_values:
         sample_indices = random.sample(range(len(original_weights)), num_values)
@@ -26,35 +30,21 @@ def print_comparison(layer, scale_factor, original_weights, modified_weights, nu
     sampled_new = [modified_weights[i] for i in sample_indices]
 
     for original, modified in zip(sampled_original, sampled_new):
-        print(f"{original:8.4f} | {modified:8.4f}")
+        logging.info(f"{original:8.4f} | {modified:8.4f}")
 
-def rescale():
-    parser = argparse.ArgumentParser(description='Modify DICOM file weights.')
-    parser.add_argument('-i', '--input', required=True, help='Path to input DICOM file')
-    parser.add_argument('-w', '--weights', required=False, help='Path to weights CSV file', default=None)
-    parser.add_argument('-o', '--output', required=True, help='Path to output DICOM file')
-    parser.add_argument('-p', '--print', type=int, default=None, help='Number of random values to print for comparison')
-    parser.add_argument('-pd', '--plan_dose', type=float, default=None, help='Plan dose')
-    parser.add_argument('-rd', '--rescale_dose', type=float, default=None, help='Rescaled dose')
-    args = parser.parse_args()
+def rescale(parsed_args, dicom_data, new_dicom_data):
 
-    # Check if neither weights nor rescale_dose/plan_dose are provided
-    if args.weights is None and (args.plan_dose is None or args.rescale_dose is None):
-        print("Error: No scaling factor is given for rescaling the plan or spots.")
-        return
-
-    dicom_data = pydicom.dcmread(args.input)
-    new_dicom_data = copy.deepcopy(dicom_data)
-
-    scale_factors = []
-    if args.weights:
-        scale_factors = read_weights_from_csv(args.weights)
-
+    ion_beam_sequence = new_dicom_data.IonBeamSequence[0]
     ion_control_point_sequence = new_dicom_data.IonBeamSequence[0].IonControlPointSequence
 
+    scale_factors = []
+
+    if parsed_args.weights:
+        scale_factors = read_weights_from_csv(parsed_args.weights)
+
     plan_rescale_ratio = 1.0  # Initialize to 1 so it doesn't affect multiplication if not set
-    if args.plan_dose is not None and args.rescale_dose is not None:
-        plan_rescale_ratio = args.rescale_dose / args.plan_dose
+    if parsed_args.plan_dose and parsed_args.rescale_dose:
+        plan_rescale_ratio = parsed_args.rescale_dose / parsed_args.plan_dose
 
     total_original_cumulative_weight = 0.0
     total_new_cumulative_weight = 0.0
@@ -69,9 +59,9 @@ def rescale():
 
         # Modify the weights with both scale_factor and plan_rescale_ratio
         new_weights = [w * scale_factor * plan_rescale_ratio for w in weights]
-        print("length of weights", len(weights))
+        logging.info(f"length of weights {len(weights)}")
         for w in weights:
-            print('wt: ',w)
+            logging.debug(f'wt: {w}')
         new_cumulative_weight = original_cumulative_weight * scale_factor * plan_rescale_ratio
         #sum(new_weights)  # Calculate the new cumulative weight
         total_new_cumulative_weight += new_cumulative_weight  # Add to total new cumulative weight
@@ -79,23 +69,100 @@ def rescale():
         new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].ScanSpotMetersetWeights = new_weights
         new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].CumulativeMetersetWeight = new_cumulative_weight
 
-        print(f"Layer {i} Cumulative Weight Before: {original_cumulative_weight}")
-        print(f"Layer {i} Cumulative Weight After: {new_cumulative_weight}")
+        logging.info(f"Layer {i} Cumulative Weight Before: {original_cumulative_weight}")
+        logging.info(f"Layer {i} Cumulative Weight After: {new_cumulative_weight}")
 
-        if args.print:
-            print_comparison(i // 2 + 1, scale_factor, weights, new_weights, args.print)
+        if parsed_args.print:
+            print_comparison(i // 2 + 1, scale_factor, weights, new_weights, parsed_args.print)
 
     new_dicom_data.IonBeamSequence[0].IonControlPointSequence[-1].CumulativeMetersetWeight = total_new_cumulative_weight
     for i in range(0, len(ion_control_point_sequence)):
-        new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].CumulativeDoseReferenceCoefficie = new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].CumulativeMetersetWeight/ total_new_cumulative_weight
+        new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].CumulativeDoseReferenceCoefficient = new_dicom_data.IonBeamSequence[0].IonControlPointSequence[i].CumulativeMetersetWeight/ total_new_cumulative_weight
 
     new_dicom_data.IonBeamSequence[0].FinalCumulativeMetersetWeight = total_new_cumulative_weight
     new_dicom_data.FractionGroupSequence[0].ReferencedBeamSequence.BeamMeterset = (dicom_data.IonBeamSequence[0].FinalCumulativeMetersetWeight/original_cumulative_weight) *total_new_cumulative_weight
-    print(f"Total Cumulative Weight Before: {total_original_cumulative_weight}")
-    print(f"Total Cumulative Weight After: {total_new_cumulative_weight}")
 
-    new_dicom_data.save_as(args.output)
-    print(f"Weight rescaled plan is saved as {args.output}")
+def main(args=None):
+    """Main function."""
 
-if __name__ == "__main__":
-    rescale()
+    if args is None:
+        args = sys.argv[1:]
+
+    parser = argparse.ArgumentParser(description='Modify ECLIPSE DICOM proton therapy treatment plans.')
+    parser.add_argument('inputfile', help='input filename', type=str)
+    #  parser.add_argument('-i', '--input', required=True, help='Path to input DICOM file')
+    parser.add_argument('-w', '--weights', required=False, help='Path to weights CSV file', default=None)
+    parser.add_argument('-o', '--output', required=False, default="output.dcm", help='Path to output DICOM file')
+
+    parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
+    parser.add_argument('-tr4', '--tr4', action='store_true', default=False, help='prepare plan for TR4, this sets aproval, gantry, snout and treatment machine')
+
+    parser.add_argument('-p', '--print', type=int, default=None, help='Number of random values to print for comparison')
+    parser.add_argument('-pd', '--plan_dose', type=float, default=None, help='Nominal plan dose [Gy(RBE)]')
+    parser.add_argument('-rd', '--rescale_dose', type=float, default=None, help='New rescaled dose [Gy(RBE)]')
+
+    parser.add_argument('-tm', '--treatment_machine', type=str, default=None, help='Treatment Machine Name')
+    parser.add_argument('-pn', '--patient_name', type=str, default=None, help='Set patient name')
+    parser.add_argument('-rn', '--reviewer_name', type=str, default=None, help='Set reviewer name')
+
+    parser.add_argument('-v', '--verbosity', action='count', default=0, help='give more output. Option is additive, and can be used up to 3 times')
+
+    parsed_args = parser.parse_args(args)
+
+    if parsed_args.verbosity == 1:
+        logging.basicConfig(level=logging.INFO)
+    elif parsed_args.verbosity > 1:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig()
+
+    # Check if neither weights nor rescale_dose/plan_dose are provided
+    if parsed_args.weights or parsed_args.plan_dose or parsed_args.rescale_dose:
+        rescale_flag = True
+    else:
+        rescale_flag = False  #print("Error: No scaling factor is given for rescaling the plan or spots.")
+
+    dicom_data = pydicom.dcmread(parsed_args.inputfile)
+    new_dicom_data = copy.deepcopy(dicom_data)
+
+    ion_beam_sequence = new_dicom_data.IonBeamSequence[0]
+    ion_control_point_sequence = new_dicom_data.IonBeamSequence[0].IonControlPointSequence
+
+    if parsed_args.treatment_machine:
+        ion_beam_sequence.TreatmentMachineName = parsed_args.treatment_machine
+        logging.info(f"New Treatment Machine Name {ion_beam_sequence.TreatmentMachineName}")
+
+    if parsed_args.approve:
+        new_dicom_data.ApprovalStatus = "APPROVED"
+        logging.info(f"New approval status {new_dicom_data.ApprovalStatus}")
+
+    if parsed_args.patient_name:
+        new_dicom_data.PatientName = parsed_args.patient_name
+        logging.info(f"New patient name {new_dicom_data.PatientName}")
+
+    if parsed_args.reviewer_name:
+        new_dicom_data.ReviwerName = parsed_args.reviewer_name
+
+    # TR4 specific settings
+    if parsed_args.tr4:
+        new_dicom_data.ApprovalStatus = "APPROVED"
+        ion_beam_sequence.TreatmentMachineName = "TR4"
+        # TODO: change for all energy layers
+        # ion_control_point_sequence.GantryAngle = "90.0"
+        # ion_control_point_sequence.SnoutPosition = "421.0"
+
+
+    logging.info(f"Total Cumulative Weight Before: {dicom_data.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
+    logging.info(f"Total Cumulative Weight After: {new_dicom_data.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
+
+    if rescale_flag:
+        rescale(parsed_args, dicom_data, new_dicom_data)
+
+    new_dicom_data.save_as(parsed_args.output)
+    logging.info(f"Weight rescaled plan is saved as {parsed_args.output}")
+    logging.info(f"Patient name '{new_dicom_data.PatientName}'")
+    logging.info(f"Approval status '{new_dicom_data.ApprovalStatus}'")
+    logging.info(f"Treatment Machine Name '{ion_beam_sequence.TreatmentMachineName}'")
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
