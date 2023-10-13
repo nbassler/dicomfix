@@ -8,12 +8,15 @@ import pydicom
 
 logger = logging.getLogger(__name__)
 
-def read_weights_from_csv(csv_file_path):
+MU_MIN = 1.0  # at least this many MU in a single spot
+hline = 72 * '-'
+
+def read_weights(csv_file_path):
     weights = []
-    with open(csv_file_path, 'r') as csvfile:
-        csvreader = csv.reader(csvfile)
-        for row in csvreader:
-            weights.append(float(row[0]))
+    with open(csv_file_path, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            weights.append(float(line))
     return weights
 
 def print_comparison(layer, scale_factor, original_weights, modified_weights, num_values):
@@ -32,75 +35,126 @@ def print_comparison(layer, scale_factor, original_weights, modified_weights, nu
     for original, modified in zip(sampled_original, sampled_new):
         logging.info(f"{original:8.4f} | {modified:8.4f}")
 
-def rescale(parsed_args, dicom_data, new_dicom_data):
+def rescale(parsed_args, dcm, dcm_new):
 
-    scale_factors = []
-    if parsed_args.weights:
-        scale_factors = read_weights_from_csv(parsed_args.weights)
-
-    plan_rescale_ratio = 1.0  # Initialize to 1 so it doesn't affect multiplication if not set
-
-    if parsed_args.plan_dose and parsed_args.rescale_dose:
-        plan_rescale_ratio = parsed_args.rescale_dose / parsed_args.plan_dose
 
     if parsed_args.rescale_factor:
-        plan_rescale_ratio = parsed_args.rescale_factor
+        scale_factor = float(parsed_args.rescale_factor)
+    else:
+        scale_factor = 1
 
-    for j,ion_beam in enumerate(new_dicom_data.IonBeamSequence):  # loop over fields
+    csv_weights = None
+    if parsed_args.weights:
+        # csv_weights = read_weights_from_csv(args.weights)
+        csv_weights = read_weights(parsed_args.weights)
+        csv_weigths_len = len(csv_weights)
+
+    for j,ion_beam in enumerate(dcm_new.IonBeamSequence):  # loop over fields
         logging.info(f"Rescaling field {j+1}")
+
+
+# not sure if beam dose is always given in dicom?
+        original_beam_dose = dcm.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
+        if (parsed_args.rescale_dose):
+            scale_factor = parsed_args.rescale_dose / original_beam_dose
+
+        new_beam_dose = original_beam_dose * scale_factor
+
         ion_control_point_sequence = ion_beam.IonControlPointSequence
 
         total_original_cumulative_weight = 0.0
         total_new_cumulative_weight = 0.0
 
-        for i,ion_control_point in enumerate(ion_beam.IonControlPointSequence):  # loop over energy layers
+        final_original_cumulative_weight = ion_beam.FinalCumulativeMetersetWeight
+        number_of_control_points = ion_beam.NumberOfControlPoints
+        number_of_energy_layers = int(number_of_control_points / 2)
 
-            original_cumulative_weight = ion_control_point.CumulativeMetersetWeight
-            total_original_cumulative_weight += original_cumulative_weight  # Add to total original cumulative weight
+        if csv_weights:
+            if csv_weigths_len != number_of_energy_layers:
+                raise Exception(f"CSV file energy layers {csv_weigths_len} must \
+                            match number of energy layers in dicom file {number_of_energy_layers}.")
 
-            # Use scale factor if available, otherwise use 1
-            scale_factor = scale_factors[i] if scale_factors else 1
+        original_beam_meterset = dcm.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
+        new_beam_meterset = original_beam_meterset * scale_factor
+        new_meterset_per_weight = new_beam_meterset / final_original_cumulative_weight
+
+        original_cumulative_weight = 0.0  # per energy layer
+        new_cumulative_weight = 0.0  # per energy layer
+        points_discarded = 0
+
+        for i, icp in enumerate(ion_beam.IonControlPointSequence):
+
+            logger.debug(f" --------- Processing energy layer {i}")
+
+            icp.CumulativeMetersetWeight = new_cumulative_weight
+
+            weights = icp.ScanSpotMetersetWeights
+            if csv_weights:
+                _ie = int(i * 0.5)
+                csv_weight = csv_weights[_ie]
+                logger.debug(f"CSV weight energy layer {_ie} {csv_weight}")
+            else:
+                csv_weight = 1.0
+
 
             # if a single spot is in an energy layer, it will not be stored into an array by pydicom.
             # Therefore it is casted into an array here, in order not to break the subsequent code.
 
-            if ion_control_point.NumberOfScanSpotPositions == 1:
-                weights = [ion_control_point.ScanSpotMetersetWeights]
-            else:
-                weights = ion_control_point.ScanSpotMetersetWeights
+            if icp.NumberOfScanSpotPositions == 1:
+                weights = [icp.ScanSpotMetersetWeights]
 
-            logging.info(f"length of weights {len(weights)}")
-            # Modify the weights with both scale_factor and plan_rescale_ratio
-            # print(f"weights {weights}")
-            # print(f'scale_factor {scale_factor}')
-            # print(f"plan_rescale_ratio {plan_rescale_ratio}")
-            new_weights = [w * scale_factor * plan_rescale_ratio for w in weights]
+            new_weights = [0.0] * len(weights)
 
 
-            for w in weights:
-                logging.debug(f'wt: {w}')
-            new_cumulative_weight = original_cumulative_weight * scale_factor * plan_rescale_ratio
-            #sum(new_weights)  # Calculate the new cumulative weight
-            total_new_cumulative_weight += new_cumulative_weight  # Add to total new cumulative weight
 
-            ion_control_point.ScanSpotMetersetWeights = new_weights
-            ion_control_point.CumulativeMetersetWeight = new_cumulative_weight
 
-            logging.info(f"Layer {i} Cumulative Weight Before: {original_cumulative_weight}")
-            logging.info(f"Layer {i} Cumulative Weight After: {new_cumulative_weight}")
+            for j, w in enumerate(weights):
+                value = w * csv_weight
+                if value > 0.0 and value * new_meterset_per_weight < MU_MIN:
+                    logger.debug(f"Discarding point with weight {value:.2f} and {value*new_meterset_per_weight:.2f} [MU]")
+                    points_discarded += 1
+                    value = 0.0
+                new_weights[j] = value
+
+            icp.ScanSpotMetersetWeights = new_weights
+
+            original_cumulative_weight += sum(weights)
+            new_cumulative_weight += sum(new_weights)  # Calculate the new cumulative weight
+
+            logger.debug(f"Layer {i:02} Cumulative Weight old-new: {original_cumulative_weight} - {new_cumulative_weight}")
 
             if parsed_args.print:
-                print_comparison(i // 2 + 1, scale_factor, weights, new_weights, parsed_args.print)
+                print_comparison(i, scale_factor, weights, new_weights, args.print)
 
-            ion_control_point.CumulativeMetersetWeight = total_new_cumulative_weight
+        # repeat loop to set the CumulativeDoseReferenceCoefficient for each energy layer
+        cw = 0
+        logger.info("CumulativeDoseReferenceCoefficient   Original        New   ")
+        logger.info(hline)
+        for i, icp in enumerate(ion_control_point_sequence):
+            cdrc_origial = icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient
+            cdrc_new = cw / new_cumulative_weight
+            icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cdrc_new
+            if icp.NumberOfScanSpotPositions == 1:
+                cw += icp.ScanSpotMetersetWeights
+            else:
+                cw += sum(icp.ScanSpotMetersetWeights)
+            logger.info(f"    Layer {i:02}                {cdrc_origial:14.3f}  {cdrc_new:14.3f}")
+        logger.info(hline)
+        logger.info("\n")
+        # set remaining meta data
+        dcm_new.IonBeamSequence[j].FinalCumulativeMetersetWeight = new_cumulative_weight
+        dcm_new.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset = new_beam_meterset
+        dcm_new.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose = new_beam_dose
 
-        for i,ion_control_point in enumerate(ion_beam.IonControlPointSequence):  # loop over energy layers
-            ion_control_point.CumulativeDoseReferenceCoefficient = ion_control_point.CumulativeMetersetWeight / total_new_cumulative_weight
 
-        ion_beam.FinalCumulativeMetersetWeight = total_new_cumulative_weight
-        print(len(new_dicom_data.FractionGroupSequence))
-        print(len(dicom_data.IonBeamSequence))
-        new_dicom_data.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset = (dicom_data.IonBeamSequence[j].FinalCumulativeMetersetWeight/original_cumulative_weight) * total_new_cumulative_weight
+        logger.info("                                  Original           New   ")
+        logger.info(hline)
+        logger.info(f"Final Cumulative Weight   : {original_cumulative_weight:14.2f}  {new_cumulative_weight:14.2f}  ")
+        logger.info(f"Beam Meterset             : {original_beam_meterset:14.2f}  {new_beam_meterset:14.2f}  [MU] ")
+        logger.info(f"Beam Dose                 : {original_beam_dose:14.2f}  {new_beam_dose:14.2f}  [Gy(RBE)]] ")
+        return points_discarded
+
+
 
 def main(args=None):
     """Main function."""
@@ -122,7 +176,6 @@ def main(args=None):
     parser.add_argument('-p', '--print', type=int, default=None, help='Number of random values to print for comparison')
     parser.add_argument('-g', '--gantry_angles', type=str, default=None, help='List of comma-separated gantry angles')
     parser.add_argument('-d', '--duplicate_fields', type=int, default=None, help='Duplicate all fields in the plan n times')
-    parser.add_argument('-pd', '--plan_dose', type=float, default=None, help='Nominal plan dose [Gy(RBE)]')
     parser.add_argument('-rd', '--rescale_dose', type=float, default=None, help='New rescaled dose [Gy(RBE)]')
     parser.add_argument('-rf', '--rescale_factor', type=float, default=None, help='Multiply plan MUs by this factor')
     parser.add_argument('-tp', '--table_position', type=str, default=None,
@@ -143,8 +196,10 @@ def main(args=None):
     else:
         logging.basicConfig()
 
+
+    points_discarded = 0
     # Check if neither weights nor rescale_dose/plan_dose are provided
-    if parsed_args.weights or parsed_args.plan_dose or parsed_args.rescale_dose or parsed_args.rescale_factor:
+    if parsed_args.weights or parsed_args.rescale_dose or parsed_args.rescale_factor:
         rescale_flag = True
     else:
         rescale_flag = False  #print("Error: No scaling factor is given for rescaling the plan or spots.")
@@ -173,7 +228,7 @@ def main(args=None):
 
     # rescale must be done BEFORE duplicate of fields, since it uses dicom_data which must be in sync with new_dicom_data in terms of number of fields.
     if rescale_flag:
-        rescale(parsed_args, dicom_data, new_dicom_data)
+        points_discarded = rescale(parsed_args, dicom_data, new_dicom_data)
 
     if parsed_args.duplicate_fields:
         n = parsed_args.duplicate_fields
@@ -252,6 +307,11 @@ def main(args=None):
     logging.info(f"Patient name '{new_dicom_data.PatientName}'")
     logging.info(f"Approval status '{new_dicom_data.ApprovalStatus}'")
     logging.info(f"Treatment Machine Name '{new_dicom_data.IonBeamSequence[-1].TreatmentMachineName}'")
+    logger.info(hline)
+    # logger.info(f"Scale Factor : {scale_factor:.4f}")
+    logger.info(f"Weight rescaled plan is saved as : '{parsed_args.output}'")
+    if points_discarded > 0:
+        logger.warning(f" *** Discarded {points_discarded} spots which were below {MU_MIN:.2f} [MU] ***")
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))
