@@ -99,6 +99,7 @@ def main(args=None):
     parser.add_argument('-tr4', '--tr4', action='store_true', default=False, help='prepare plan for TR4, this sets aproval, gantry, snout and treatment machine')
 
     parser.add_argument('-p', '--print', type=int, default=None, help='Number of random values to print for comparison')
+    parser.add_argument('-g', '--gantry_angles', type=str, default=None, help='List of comma-separated gantry angles')
     parser.add_argument('-pd', '--plan_dose', type=float, default=None, help='Nominal plan dose [Gy(RBE)]')
     parser.add_argument('-rd', '--rescale_dose', type=float, default=None, help='New rescaled dose [Gy(RBE)]')
 
@@ -133,6 +134,16 @@ def main(args=None):
 
     ion_beam_sequence = new_dicom_data.IonBeamSequence[0]
     ion_control_point_sequence = new_dicom_data.IonBeamSequence[0].IonControlPointSequence
+
+    if parsed_args.gantry_angles:
+        number_of_fields =  len(new_dicom_data.IonBeamSequence)
+        gantry_angles = parsed_args.gantry_angles.split(',')
+        if len(gantry_angles) != number_of_fields:
+            logging.error(f"Number of given gantry angles must match number of fields. {number_of_fields} fields found.")
+        for i,ibs in enumerate(new_dicom_data.IonBeamSequence):
+            old_ga = ibs.IonControlPointSequence[0].GantryAngle
+            ibs.IonControlPointSequence[0].GantryAngle = gantry_angles[i]
+            logging.info(f"Gantry angle field #{i+1} changed from {old_ga} to {ibs.IonControlPointSequence[0].GantryAngle}")
 
     if parsed_args.treatment_machine:
         ion_beam_sequence.TreatmentMachineName = parsed_args.treatment_machine
