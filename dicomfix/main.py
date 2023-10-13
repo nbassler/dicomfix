@@ -124,7 +124,7 @@ def rescale(parsed_args, dcm, dcm_new):
             logger.debug(f"Layer {i:02} Cumulative Weight old-new: {original_cumulative_weight} - {new_cumulative_weight}")
 
             if parsed_args.print:
-                print_comparison(i, scale_factor, weights, new_weights, args.print)
+                print_comparison(i, scale_factor, weights, new_weights, parsed_args.print)
 
         # repeat loop to set the CumulativeDoseReferenceCoefficient for each energy layer
         cw = 0
