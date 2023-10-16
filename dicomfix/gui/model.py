@@ -20,6 +20,7 @@ class MainModel:
         self.treatment_machine = "TR1"
         self.fields = None
 
+
 class Field:
     def __init__(self):
         self.name = ""
@@ -29,6 +30,7 @@ class Field:
         self.gantry = 0.0
         self.couch = 0.0
         self.nozzle = 0.0
+
 
 class SettingsModel:
     """

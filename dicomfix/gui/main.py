@@ -12,6 +12,7 @@ _version_ = "0.0.1"
 
 logger = logging.getLogger(__name__)
 
+
 def main(args=sys.argv[1:]):
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbosity', action='count', help="increase output verbosity", default=0)
@@ -29,10 +30,11 @@ def main(args=sys.argv[1:]):
     app = QApplication(sys.argv)
     view = MainWindowQtView()
     model = MainModel()
-    controller = MainController(view, model)
+    MainController(view, model)
     view.show()
 
     return app.exec()
+
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

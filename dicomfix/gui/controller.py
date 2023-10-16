@@ -9,14 +9,12 @@ class MainController:
         self.view.open_dicom_callback = self.on_open_dicom
         self.view.selection_changed_callback = self.on_files_selected
 
-
     def on_open_dicom(self):
         print("Open DICOM triggered from controller.")
         files = self.view.open_dicom_files()
         self.model.files_loaded = files[0]
         self.view.file_list_model.setStringList(files[0])
         # here open each dicom file and build the self.fields
-
 
     def on_files_selected(self, selected, deselected):
         # Get all selected items
@@ -28,9 +26,3 @@ class MainController:
         # Update your model here, for example:
         self.model.files_selected = selected_files
         print(f"Selected files: {selected_files}")
-
-
-
-
-
-

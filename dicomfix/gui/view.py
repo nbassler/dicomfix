@@ -2,12 +2,13 @@ import logging
 import os
 
 from PyQt6 import uic
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QMessageBox, QAbstractItemView
+from PyQt6.QtWidgets import QMainWindow, QFileDialog, QAbstractItemView
 from PyQt6.QtCore import QStringListModel
 
 current_directory = os.path.dirname(os.path.realpath(__file__))
 
 logger = logging.getLogger(__name__)
+
 
 class UiMainWindow(QMainWindow):
     def __init__(self):
@@ -16,6 +17,7 @@ class UiMainWindow(QMainWindow):
         uic.loadUi(ui_path, self)
         self.setWindowTitle("DicomFix")
         self._selection_changed_callback = None
+
 
 class MainWindowQtView:
     def __init__(self):
@@ -39,7 +41,7 @@ class MainWindowQtView:
             path,
             "Dicom plans (RP*.dcm RM*.dcm);;All files (*)"
         )
-        return(fnames)
+        return fnames
 
     def show_info(self, name, content):
         from PyQt6.QtWidgets import QMessageBox
