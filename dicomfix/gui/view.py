@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 
 from PyQt6 import uic
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QAbstractItemView
@@ -18,15 +18,18 @@ class UiMainWindow(QMainWindow):
         uic.loadUi(ui_path, self)
         self.setWindowTitle("DicomFix")
         self._selection_changed_callback = None
+        self._treatment_machine_changed_callback = None
 
 
 class MainWindowQtView:
     def __init__(self):
         self.ui = UiMainWindow()
-        print(dir(self.ui.listView))
+
+        # Setup file list model
         self.file_list_model = QStringListModel()
         self.ui.listView.setModel(self.file_list_model)
         self.ui.listView.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+
         self.test_property = 1  # debug and testing
 
     def show(self):
@@ -40,7 +43,7 @@ class MainWindowQtView:
             self.ui,
             "Open File",
             path,
-            "Dicom plans (RP*.dcm RM*.dcm);;All files (*)"
+            "Dicom plans (*.dcm);;All files (*)"
         )
         return fnames
 
@@ -65,3 +68,20 @@ class MainWindowQtView:
     def selection_changed_callback(self, callback):
         self.ui.listView.selectionModel().selectionChanged.connect(callback)
         self._selection_changed_callback = callback
+
+    @property  # getter
+    def approve_callback(self):
+        return self._approved_callback
+
+    @approve_callback.setter
+    def approve_changed_callback(self, callback):
+        self.ui.checkBox.stateChanged(callback)
+        self._approve_changed_callback = callback
+
+    @property
+    def treatment_machine_changed_callback(self):
+        return self._treatment_machine_changed_callback
+
+    @treatment_machine_changed_callback.setter
+    def treatment_machine_changed_callback(self, callback):
+        self.ui.comboBox_treatment_machine.currentIndexChanged.connect(callback)

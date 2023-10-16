@@ -16,6 +16,7 @@ class DicomFix:
         """Initializes the DicomFix class and loads the input DICOM plan."""
         self.points_discarded = 0
         self.dcm = pydicom.dcmread(inputfile)
+        self.filename = inputfile
 
     def save(self, outputfile: str = None):
         """Saves the new dicom file."""
