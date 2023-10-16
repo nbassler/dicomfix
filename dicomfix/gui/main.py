@@ -3,8 +3,10 @@ import logging
 import argparse
 
 from PyQt6.QtWidgets import QApplication
-from ui_model import MainModel
-from ui_view import MainWindowQtView
+
+from view import MainWindowQtView
+from model import MainModel
+from controller import MainController
 
 _version_ = "0.0.1"
 
@@ -27,6 +29,7 @@ def main(args=sys.argv[1:]):
     app = QApplication(sys.argv)
     view = MainWindowQtView()
     model = MainModel()
+    controller = MainController(view, model)
     view.show()
 
     return app.exec()
