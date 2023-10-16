@@ -1,3 +1,7 @@
+# File: controller.py
+# Purpose: ties the viewer to the model
+
+
 class MainController:
     """Controls interactions between the model and view."""
     def __init__(self, view, model):
@@ -12,6 +16,7 @@ class MainController:
     def on_open_dicom(self):
         print("Open DICOM triggered from controller.")
         files = self.view.open_dicom_files()
+        self.model.load_dicoms(files[0])
         self.model.files_loaded = files[0]
         self.view.file_list_model.setStringList(files[0])
         # here open each dicom file and build the self.fields

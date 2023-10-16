@@ -3,6 +3,7 @@ import os
 
 from PyQt6 import uic
 from PyQt6.QtWidgets import QMainWindow, QFileDialog, QAbstractItemView
+from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QStringListModel
 
 current_directory = os.path.dirname(os.path.realpath(__file__))
@@ -26,7 +27,7 @@ class MainWindowQtView:
         self.file_list_model = QStringListModel()
         self.ui.listView.setModel(self.file_list_model)
         self.ui.listView.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.test_property = 1
+        self.test_property = 1  # debug and testing
 
     def show(self):
         self.ui.show()
@@ -44,7 +45,6 @@ class MainWindowQtView:
         return fnames
 
     def show_info(self, name, content):
-        from PyQt6.QtWidgets import QMessageBox
         QMessageBox.information(self.ui, name, content)
 
     # define callbacks here
