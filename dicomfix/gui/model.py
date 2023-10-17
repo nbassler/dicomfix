@@ -81,6 +81,14 @@ class Task:
             self.fields.append(field)
 
         self.treatment_machine = self.fields[-1].treatment_machine_name
+        if self.treatment_machine == "TR1":
+            self.treatment_machine_index = 0
+        if self.treatment_machine == "TR2":
+            self.treatment_machine_index = 1
+        if self.treatment_machine == "TR3":
+            self.treatment_machine_index = 2
+        if self.treatment_machine == "TR4":
+            self.treatment_machine_index = 3
 
 
 class Field:
@@ -93,6 +101,7 @@ class Field:
         self.couch = 0.0
         self.snout_position = 0.0
         self.treatment_machine_name = ""
+        self.treatment_machine_index = -1  # 0-3 for TR1-TR4
 
     def from_ion_beam(self, ion_beam):
         """Set local variables depending on given ion beam sequence"""

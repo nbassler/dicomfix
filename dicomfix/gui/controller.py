@@ -50,7 +50,8 @@ class MainController:
         self.model.approve(is_checked)  # update model
 
     def on_treatment_machine_changed(self, tm_string):
-        self.model.treatment_machine(tm_string)  # update model
+        pass
+        # self.model.treatment_machine(tm_string)  # update model
 
     def update_ui(self):
         """Update all elements """
@@ -67,7 +68,7 @@ class MainController:
             ui.checkBox_curative_intent.setChecked(st.curative_intent)
             ui.checkBox_newdatetime.setChecked(st.datetime)
             ui.checkBox_reviewername.setChecked(st.reviewer)
-            # ui.comboBox_treatment_machine.setIndex(st.treatment_machine)
+            ui.comboBox_treatment_machine.setCurrentIndex(st.treatment_machine_index)
 
             for field in st.fields:
                 ui.doubleSpinBox_table_vertical.setValue(field.table_vertical)
