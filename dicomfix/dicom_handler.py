@@ -2,6 +2,7 @@ import random
 import copy
 import logging
 import pydicom
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class DicomFix:
         print(self.dcm)
         exit(0)
 
-    def copy(self, weights=None, approve=None, intent_curative=None, print_spots=None, gantry_angles=None,
+    def copy(self, weights=None, approve=None, intent_curative=None, date=None, print_spots=None, gantry_angles=None,
              duplicate_fields=None, rescale_dose=None, rescale_factor=None, table_position=None, snout_position=None,
              treatment_machine=None, plan_label=None, patient_name=None, reviewer_name=None, wizard_tr4=None):
         """Create a new copy of the input dicom, while overriding any of the input options"""
@@ -109,6 +110,13 @@ class DicomFix:
         if intent_curative:
             new_dicom_data.PlanIntent = 'CURATIVE'
             logging.info(f"New plan intent {new_dicom_data.PlanIntent}")
+
+        if date:
+            _dt = datetime.datetime.now()
+            new_dicom_data.RTPlanDate = _dt.strftime("%Y%m%d")
+            new_dicom_data.RTPlanTime = _dt.strftime("%H%M%S.%f")
+            logging.info(f"New RT plan date {new_dicom_data.RTPlanDate}")
+            logging.info(f"New RT plan time {new_dicom_data.RTPlanTime}")
 
         if plan_label:
             new_dicom_data.RTPlanLabel = plan_label

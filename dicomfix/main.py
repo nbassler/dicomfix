@@ -30,6 +30,7 @@ def main(args=None):
     parser.add_argument('-o', '--output', required=False, default="output.dcm", help='Path to output DICOM file')
 
     parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
+    parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')
     parser.add_argument('-ic', '--intent_curative', action='store_true', default=False,
                         help='Set plan intent to CURATIVE')
     parser.add_argument('-i', '--inspect', action='store_true', default=False, help='Print contents of dicom file exit')
@@ -82,7 +83,7 @@ def main(args=None):
     if parsed_args.inspect:
         df.inspect()
 
-    df.copy(weights, parsed_args.approve, parsed_args.intent_curative,
+    df.copy(weights, parsed_args.approve, parsed_args.intent_curative, parsed_args.date,
             parsed_args.print_spots, gantry_angles,
             parsed_args.duplicate_fields, parsed_args.rescale_dose, parsed_args.rescale_factor,
             table_position, parsed_args.snout_position,
