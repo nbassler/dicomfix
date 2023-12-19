@@ -12,6 +12,7 @@ HLINE = 72 * '-'
 
 class DicomFix:
     """ Class for manipulating DICOM plans."""
+
     def __init__(self, inputfile: str):
         """Initializes the DicomFix class and loads the input DICOM plan."""
         self.points_discarded = 0
@@ -43,7 +44,7 @@ class DicomFix:
 
     def copy(self, weights=None, approve=None, intent_curative=None, print_spots=None, gantry_angles=None,
              duplicate_fields=None, rescale_dose=None, rescale_factor=None, table_position=None, snout_position=None,
-             treatment_machine=None, patient_name=None, reviewer_name=None, wizard_tr4=None):
+             treatment_machine=None, plan_label=None, patient_name=None, reviewer_name=None, wizard_tr4=None):
         """Create a new copy of the input dicom, while overriding any of the input options"""
 
         # Check if neither weights nor rescale_dose/plan_dose are provided
@@ -108,6 +109,10 @@ class DicomFix:
         if intent_curative:
             new_dicom_data.PlanIntent = 'CURATIVE'
             logging.info(f"New plan intent {new_dicom_data.PlanIntent}")
+
+        if plan_label:
+            new_dicom_data.RTPlanLabel = plan_label
+            logging.info(f"New RT plan label {new_dicom_data.RTPlanLabel}")
 
         if patient_name:
             new_dicom_data.PatientName = patient_name

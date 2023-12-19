@@ -7,7 +7,7 @@ from dicom_handler import DicomFix
 logger = logging.getLogger(__name__)
 
 
-def read_weights(self, csv_file_path):
+def read_weights(csv_file_path):
     """Read CSV file with new weights for each energy layer"""
     weights = []
     with open(csv_file_path, 'r') as f:
@@ -47,6 +47,7 @@ def main(args=None):
                              'Negative values should be in quotes and leading space.')
     parser.add_argument('-sp', '--snout_position', type=float, default=None, help='Set new snout position')
     parser.add_argument('-tm', '--treatment_machine', type=str, default=None, help='Treatment Machine Name')
+    parser.add_argument('-pl', '--plan_label', type=str, default=None, help='Set plan label')
     parser.add_argument('-pn', '--patient_name', type=str, default=None, help='Set patient name')
     parser.add_argument('-rn', '--reviewer_name', type=str, default=None, help='Set reviewer name')
 
@@ -85,11 +86,11 @@ def main(args=None):
             parsed_args.print_spots, gantry_angles,
             parsed_args.duplicate_fields, parsed_args.rescale_dose, parsed_args.rescale_factor,
             table_position, parsed_args.snout_position,
-            parsed_args.treatment_machine, parsed_args.patient_name,
+            parsed_args.treatment_machine, parsed_args.plan_label, parsed_args.patient_name,
             parsed_args.reviewer_name,
             parsed_args.wizard_tr4)
 
-    df.save()
+    df.save(parsed_args.output)
 
 
 if __name__ == '__main__':
