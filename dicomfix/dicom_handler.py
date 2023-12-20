@@ -43,6 +43,47 @@ class DicomFix:
         print(self.dcm)
         exit(0)
 
+    def export(self, of: str = None, layer=-1, field=-1, fmt=0):
+        """Export to varian serivce mode"""
+        if not of:
+            of = "foobar"
+        d = self.dcm_new
+        dt = datetime.datetime.now()
+        tmstr = dt.strftime("%d-%m-%Y")
+
+        h = "\#HEADER\n"
+        h += f"NAME, {d.RTPlanLabel}\n"
+        h += f"DATE, {tmstr}\n"
+        h += "CREATORNAME, DicomFix\n"
+        h += "CREATORVERSION, 0.1\n"
+        h += "\n"
+
+        v = "\#VALUES\n"
+        v = "Index;Position x;Position y;Dose\n"
+
+        # TODO: add option for single fields or layers
+
+        for j, ion_beam in enumerate(d.IonBeamSequence):  # loop over fields
+            fno = j
+            for i, icp in enumerate(ion_beam.IonControlPointSequence):
+                lno = i
+                filename = f"{of}_field{fno+1:02d}_layer_{lno+1:02d}.csv"
+                c = "* ----- RACEHORSE Spot List -----\n"
+                c += f"* Field: {fno+1:02d}"  # no newline
+                c += f"  Layer: {lno+1:02d}\n"  # TODO: nominal energy
+                c += "\n"
+                # TODO: skip empty layers
+
+                with open(filename, "w") as f:
+                    f.write(c)
+                    f.write(h)
+                    f.write(v)
+                    for n, wt in enumerate(icp.ScanSpotMetersetWeights):
+                        mu = wt * 1  # TODO: translate meter set weights to MUs
+                        x = icp.ScanSpotPositionMap[n*2]
+                        y = icp.ScanSpotPositionMap[n*2+1]
+                        f.write(f"{n:2d},{x:8.2f},{y:8.2f},{mu:8.2f}\n")  # index, mm, mm, monitor units
+
     def copy(self, weights=None, approve=None, intent_curative=None, date=None, print_spots=None, gantry_angles=None,
              duplicate_fields=None, rescale_dose=None, rescale_factor=None, table_position=None, snout_position=None,
              treatment_machine=None, plan_label=None, patient_name=None, reviewer_name=None, wizard_tr4=None):
