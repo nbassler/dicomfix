@@ -2,7 +2,7 @@ import sys
 import argparse
 import logging
 
-from dicom_handler import DicomFix
+from dicomfix.dicom_handler import DicomFix
 
 logger = logging.getLogger(__name__)
 
