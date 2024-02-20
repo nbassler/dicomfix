@@ -28,6 +28,8 @@ def main(args=None):
 
     parser.add_argument('-w', '--weights', required=False, help='Path to weights CSV file', default=None)
     parser.add_argument('-o', '--output', required=False, default="output.dcm", help='Path to output DICOM file')
+    parser.add_argument('-e', '--export_racehorse', required=False, default=None,
+                        help='Baseneame for spot list, in Varian RACEHORSE csv-format.')
 
     parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
     parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')
@@ -37,7 +39,7 @@ def main(args=None):
     parser.add_argument('-tr4', '--wizard_tr4', action='store_true', default=False,
                         help='prepare plan for TR4, this sets aproval, gantry, snout and treatment machine')
     parser.add_argument('-p', '--print_spots', type=int, default=None,
-                        help='Number of random values to print for comparison')
+                        help='Number of random spots to print for comparison')
     parser.add_argument('-g', '--gantry_angles', type=str, default=None, help='List of comma-separated gantry angles')
     parser.add_argument('-d', '--duplicate_fields', type=int, default=None,
                         help='Duplicate all fields in the plan n times')
@@ -92,6 +94,9 @@ def main(args=None):
             parsed_args.wizard_tr4)
 
     df.save(parsed_args.output)
+
+    if parsed_args.export_racehorse:
+        df.export_racehorse()
 
 
 if __name__ == '__main__':
