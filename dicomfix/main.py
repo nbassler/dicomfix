@@ -28,7 +28,8 @@ def main(args=None):
 
     parser.add_argument('-w', '--weights', required=False, help='Path to weights CSV file', default=None)
     parser.add_argument('-o', '--output', required=False, default="output.dcm", help='Path to output DICOM file')
-    parser.add_argument('-e', '--export', required=False, default="foobar.csv", help='Export spotlist')
+    parser.add_argument('-e', '--export_racehorse', required=False, default=None,
+                        help='Baseneame for spot list, in Varian RACEHORSE csv-format.')
 
     parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
     parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')
@@ -94,8 +95,8 @@ def main(args=None):
 
     df.save(parsed_args.output)
 
-    if parsed_args.export:
-        df.export()
+    if parsed_args.export_racehorse:
+        df.export_racehorse()
 
 
 if __name__ == '__main__':
