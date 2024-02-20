@@ -51,15 +51,15 @@ class DicomFix:
         dt = datetime.datetime.now()
         tmstr = dt.strftime("%d-%m-%Y")
 
-        h = "\#HEADER\n"
+        h = "#HEADER\n"
         h += f"NAME, {d.RTPlanLabel}\n"
         h += f"DATE, {tmstr}\n"
         h += "CREATORNAME, DicomFix\n"
         h += "CREATORVERSION, 0.1\n"
         h += "\n"
 
-        v = "\#VALUES\n"
-        v = "Index;Position x;Position y;Dose\n"  # if RACEHORSE allows for it, rename "Dose" to "MU" and add units in mm
+        v = "#VALUES\n"
+        v += "Index;Position x;Position y;Dose\n"  # if RACEHORSE allows for it, rename "Dose" to "MU", units in mm
 
         for j, ion_beam in enumerate(d.IonBeamSequence):  # loop over fields
             fno = j
