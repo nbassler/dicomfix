@@ -39,7 +39,7 @@ def main(args=None):
     parser.add_argument('-tr4', '--wizard_tr4', action='store_true', default=False,
                         help='prepare plan for TR4, this sets aproval, gantry, snout and treatment machine')
     parser.add_argument('-p', '--print_spots', type=int, default=None,
-                        help='Number of random values to print for comparison')
+                        help='Number of random spots to print for comparison')
     parser.add_argument('-g', '--gantry_angles', type=str, default=None, help='List of comma-separated gantry angles')
     parser.add_argument('-d', '--duplicate_fields', type=int, default=None,
                         help='Duplicate all fields in the plan n times')
