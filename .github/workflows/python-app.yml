@@ -30,7 +30,7 @@ jobs:
         pip install -e .[dev]  # This installs your package along with both runtime and development dependencies
 
     - name: Check setuptools version
-        run: |
+      run: |
           pip show setuptools
 
 
