@@ -17,6 +17,12 @@ packages = [
     {include = "dicomfix"},
 ]
 
+[project.optional-dependencies]
+dev = [
+    "flake8>=3.8.0",
+    "pytest>=6.0.0"
+]
+
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"
