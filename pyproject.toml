@@ -8,7 +8,7 @@ name = "dicomfix"
 version = "0.1.0"
 description = "A brief description of what your project does"
 authors = [{name = "Niels Bassler", email = "nbassler@users.noreply.github.com"}]
-license = "MIT"
+license-expression = "MIT"
 readme = "README.md"
 dependencies = [
     "pydicom>=2.3.1"
