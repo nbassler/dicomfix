@@ -45,6 +45,9 @@ def main(args=None):
                         help='Duplicate all fields in the plan n times')
     parser.add_argument('-rd', '--rescale_dose', type=float, default=None, help='New rescaled dose [Gy(RBE)]')
     parser.add_argument('-rf', '--rescale_factor', type=float, default=None, help='Multiply plan MUs by this factor')
+    parser.add_argument('-rm', '--rescale_minimize', action='store_true',
+                        default=False, help='Minimize plan so smallest spot is 1 MU. ' +
+                        "This overrides the -rd and -rf options.")
     parser.add_argument('-tp', '--table_position', type=str, default=None,
                         help='New table position vertical,longitudinal,lateral [cm]. ' +
                              'Negative values should be in quotes and leading space.')
@@ -91,7 +94,8 @@ def main(args=None):
             table_position, parsed_args.snout_position,
             parsed_args.treatment_machine, parsed_args.plan_label, parsed_args.patient_name,
             parsed_args.reviewer_name,
-            parsed_args.wizard_tr4)
+            parsed_args.wizard_tr4,
+            parsed_args.rescale_minimize)
 
     df.save(parsed_args.output)
 

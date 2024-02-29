@@ -24,14 +24,14 @@ class DicomFix:
         """Saves the new dicom file."""
         if not outputfile:
             outputfile = DEFAULT_SAVE_FILENAME
-        logging.info(f"Total Cumulative Weight Before: {self.dcm.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
-        logging.info(f"Total Cumulative Weight After: {self.dcm_new.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
+        logger.info(f"Total Cumulative Weight Before: {self.dcm.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
+        logger.info(f"Total Cumulative Weight After: {self.dcm_new.IonBeamSequence[0].FinalCumulativeMetersetWeight}")
 
         new_dicom_data = self.dcm_new
         new_dicom_data.save_as(outputfile)
-        logging.info(f"Patient name '{new_dicom_data.PatientName}'")
-        logging.info(f"Approval status '{new_dicom_data.ApprovalStatus}'")
-        logging.info(f"Treatment Machine Name '{new_dicom_data.IonBeamSequence[-1].TreatmentMachineName}'")
+        logger.info(f"Patient name '{new_dicom_data.PatientName}'")
+        logger.info(f"Approval status '{new_dicom_data.ApprovalStatus}'")
+        logger.info(f"Treatment Machine Name '{new_dicom_data.IonBeamSequence[-1].TreatmentMachineName}'")
         logger.info(HLINE)
         # logger.info(f"Scale Factor : {scale_factor:.4f}")
         logger.info(f"New plan is saved as : '{outputfile}'")
@@ -81,7 +81,7 @@ class DicomFix:
                 wt_sum = 0.0
                 for n, wt in enumerate(icp.ScanSpotMetersetWeights):
                     wt_sum += wt
-                logging.debug(f"{lno}  wt_sum {wt_sum:.10}")
+                logger.debug(f"{lno}  wt_sum {wt_sum:.10}")
                 if wt_sum <= 0.0:  #
                     continue  # skip if this layer has no MUs
 
@@ -89,7 +89,7 @@ class DicomFix:
                 lno += 1
 
                 if lno > number_of_energy_layers:
-                    logging.error(f"Too many energy layers. Should be {number_of_energy_layers} / 2 but found {lno}.")
+                    logger.error(f"Too many energy layers. Should be {number_of_energy_layers} / 2 but found {lno}.")
 
                 filename = f"{of}_field{fno+1:02d}_layer_{lno:02d}__{nominal_beam_energy:06.2f}MeV.csv"
                 c = "* ----- RACEHORSE Spot List -----\n"
@@ -107,11 +107,12 @@ class DicomFix:
                         y = icp.ScanSpotPositionMap[n*2+1]
                         f.write(f"{n:2d},{x:8.2f},{y:8.2f},{mu:8.2f}\n")  # index, mm, mm, monitor units
                         check_total_mu += mu
-        logging.debug(f"export_racehorse: check_total_mu = {check_total_mu:.2f} MU")
+        logger.debug(f"export_racehorse: check_total_mu = {check_total_mu:.2f} MU")
 
     def copy(self, weights=None, approve=None, intent_curative=None, date=None, print_spots=None, gantry_angles=None,
              duplicate_fields=None, rescale_dose=None, rescale_factor=None, table_position=None, snout_position=None,
-             treatment_machine=None, plan_label=None, patient_name=None, reviewer_name=None, wizard_tr4=None):
+             treatment_machine=None, plan_label=None, patient_name=None, reviewer_name=None, wizard_tr4=None,
+             rescale_minimize=False):
         """Create a new copy of the input dicom, while overriding any of the input options"""
 
         # Check if neither weights nor rescale_dose/plan_dose are provided
@@ -126,19 +127,19 @@ class DicomFix:
         if gantry_angles:
             number_of_fields = len(new_dicom_data.IonBeamSequence)
             if len(gantry_angles) != number_of_fields:
-                logging.error(f"Number of given gantry angles must match number of fields. \
+                logger.error(f"Number of given gantry angles must match number of fields. \
                                {number_of_fields} fields found.")
             for i, ibs in enumerate(new_dicom_data.IonBeamSequence):
                 old_ga = ibs.IonControlPointSequence[0].GantryAngle
                 ibs.IonControlPointSequence[0].GantryAngle = gantry_angles[i]
-                logging.info(f"Gantry angle field #{i+1} changed from {old_ga} to \
+                logger.info(f"Gantry angle field #{i+1} changed from {old_ga} to \
                              {ibs.IonControlPointSequence[0].GantryAngle}")
 
         # rescale must be done BEFORE duplicate of fields, since it uses dicom_data which must be in sync
         # with new_dicom_data in terms of number of fields.
 
         if rescale_flag:
-            self.rescale(rescale_factor, rescale_dose, weights, print_spots)
+            self.rescale(rescale_factor, rescale_dose, weights, print_spots, rescale_minimize)
 
         if duplicate_fields:
             n = duplicate_fields
@@ -162,35 +163,35 @@ class DicomFix:
                 ib.BeamNumber = i+1
                 new_rbs[i].ReferencedBeamNumber = i+1
 
-            logging.info(f"Duplicated {nf} fields {n} times.")
+            logger.info(f"Duplicated {nf} fields {n} times.")
 
         if treatment_machine:
             for ibs in new_dicom_data.IonBeamSequence:
                 ibs.TreatmentMachineName = treatment_machine
-            logging.info(f"New Treatment Machine Name {new_dicom_data.IonBeamSequence[-1].TreatmentMachineName}")
+            logger.info(f"New Treatment Machine Name {new_dicom_data.IonBeamSequence[-1].TreatmentMachineName}")
 
         if approve:
             new_dicom_data.ApprovalStatus = "APPROVED"
-            logging.info(f"New approval status {new_dicom_data.ApprovalStatus}")
+            logger.info(f"New approval status {new_dicom_data.ApprovalStatus}")
 
         if intent_curative:
             new_dicom_data.PlanIntent = 'CURATIVE'
-            logging.info(f"New plan intent {new_dicom_data.PlanIntent}")
+            logger.info(f"New plan intent {new_dicom_data.PlanIntent}")
 
         if date:
             _dt = datetime.datetime.now()
             new_dicom_data.RTPlanDate = _dt.strftime("%Y%m%d")
             new_dicom_data.RTPlanTime = _dt.strftime("%H%M%S.%f")
-            logging.info(f"New RT plan date {new_dicom_data.RTPlanDate}")
-            logging.info(f"New RT plan time {new_dicom_data.RTPlanTime}")
+            logger.info(f"New RT plan date {new_dicom_data.RTPlanDate}")
+            logger.info(f"New RT plan time {new_dicom_data.RTPlanTime}")
 
         if plan_label:
             new_dicom_data.RTPlanLabel = plan_label
-            logging.info(f"New RT plan label {new_dicom_data.RTPlanLabel}")
+            logger.info(f"New RT plan label {new_dicom_data.RTPlanLabel}")
 
         if patient_name:
             new_dicom_data.PatientName = patient_name
-            logging.info(f"New patient name {new_dicom_data.PatientName}")
+            logger.info(f"New patient name {new_dicom_data.PatientName}")
 
         if reviewer_name:
             new_dicom_data.ReviwerName = reviewer_name
@@ -202,31 +203,31 @@ class DicomFix:
                 ibs.TreatmentMachineName = "TR4"
                 ibs.IonControlPointSequence[0].GantryAngle = 90.0
                 ibs.IonControlPointSequence[0].SnoutPosition = 421.0
-            logging.info(f"All gantry angles set to \
+            logger.info(f"All gantry angles set to \
                          {new_dicom_data.IonBeamSequence[-1].IonControlPointSequence[0].GantryAngle}")
-            logging.info(f"All snout positions set to \
+            logger.info(f"All snout positions set to \
                          {new_dicom_data.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition}")
 
         # check and set X,Y,Z of table position
         if table_position:
             if len(table_position) != 3:
-                logging.error(f"Table Position expects three values, got {len(table_position)}.")
+                logger.error(f"Table Position expects three values, got {len(table_position)}.")
                 exit()
             for ibs in new_dicom_data.IonBeamSequence:
                 ibs.IonControlPointSequence[0].TableTopVerticalPosition = table_position[0]
                 ibs.IonControlPointSequence[0].TableTopLongitudinalPosition = table_position[1]
                 ibs.IonControlPointSequence[0].TableTopLateralPosition = table_position[2]
-            logging.info(f"Table vertical position: {ibs.IonControlPointSequence[0].TableTopVerticalPosition} [cm]")
-            logging.info("Table longitudinal position: " +
-                         f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition} [cm]")
-            logging.info(f"Table lateral position: {ibs.IonControlPointSequence[0].TableTopLateralPosition} [cm]")
+            logger.info(f"Table vertical position: {ibs.IonControlPointSequence[0].TableTopVerticalPosition} [cm]")
+            logger.info("Table longitudinal position: " +
+                        f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition} [cm]")
+            logger.info(f"Table lateral position: {ibs.IonControlPointSequence[0].TableTopLateralPosition} [cm]")
 
     def print_spot_comparison(self, layer, scale_factor, original_weights, modified_weights, num_values):
         """Print num_values of spot weights, before and after for checking."""
 
-        logging.info(f"\nLayer {layer}  Scale Factor {scale_factor}")
-        logging.info("Original | Modified")
-        logging.info("---------|---------")
+        logger.info(f"\nLayer {layer}  Scale Factor {scale_factor}")
+        logger.info("Original | Modified")
+        logger.info("---------|---------")
 
         if len(original_weights) >= num_values:
             sample_indices = random.sample(range(len(original_weights)), num_values)
@@ -237,9 +238,31 @@ class DicomFix:
         sampled_new = [modified_weights[i] for i in sample_indices]
 
         for original, modified in zip(sampled_original, sampled_new):
-            logging.info(f"{original:8.4f} | {modified:8.4f}")
+            logger.info(f"{original:8.4f} | {modified:8.4f}")
 
-    def rescale(self, rescale_factor=None, rescale_dose=None, weights=None, print_spots=False):
+    def get_rescale_for_spot_minimization(self):
+        """Scan new dicom plan, and return a rescale factor to get lowest spot = MU_MIN."""
+        mu_lowest = 9.9e9
+        for j, ion_beam in enumerate(self.dcm_new.IonBeamSequence):  # loop over fields
+            final_original_cumulative_weight = ion_beam.FinalCumulativeMetersetWeight
+            beam_meterset = self.dcm.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
+            meterset_per_weight = beam_meterset / final_original_cumulative_weight
+
+            for i, icp in enumerate(ion_beam.IonControlPointSequence):
+                if icp.NumberOfScanSpotPositions == 1:
+                    weights = [icp.ScanSpotMetersetWeights]
+                else:
+                    weights = icp.ScanSpotMetersetWeights
+
+                for k, w in enumerate(weights):
+                    if w > 0.0 and ((w * meterset_per_weight) < mu_lowest):
+                        mu_lowest = w * meterset_per_weight
+
+        logger.info(f"lowest spot: {mu_lowest:14.2} [MU]")
+        rescale = MU_MIN / mu_lowest
+        return rescale
+
+    def rescale(self, rescale_factor=None, rescale_dose=None, weights=None, print_spots=False, minimize_spots=False):
         """Rescales the input dicom plan by a factor or to a given dose value"""
         if rescale_factor:
             scale_factor = float(rescale_factor)
@@ -253,7 +276,7 @@ class DicomFix:
             csv_weigths_len = len(csv_weights)
 
         for j, ion_beam in enumerate(self.dcm_new.IonBeamSequence):  # loop over fields
-            logging.info(f"Rescaling field {j+1}")
+            logger.info(f"Rescaling field {j+1}")
 
             # not sure if beam dose is always given in dicom?
             original_beam_dose = self.dcm.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
@@ -338,6 +361,14 @@ class DicomFix:
                 logger.info(f"    Layer {i:02}                {cdrc_origial:14.3f}  {cdrc_new:14.3f}")
             logger.info(HLINE)
             logger.info("\n")
+
+            rescale_to_minimize = 1.0
+            if minimize_spots:
+                rescale_to_minimize = self.get_rescale_for_spot_minimization()
+                logger.info(f"Rescale factor to minimize spots: {rescale_to_minimize}")
+                new_beam_meterset *= rescale_to_minimize
+                new_beam_dose *= rescale_to_minimize
+
             # set remaining meta data
             logger.debug(f"IonBeamSequnce[{j}]")
             self.dcm_new.IonBeamSequence[j].FinalCumulativeMetersetWeight = new_cumulative_weight
