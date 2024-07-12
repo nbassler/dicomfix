@@ -21,11 +21,11 @@ def main(args=sys.argv[1:]):
 
     # set logging level
     if args.verbosity == 1:
-        logging.basicConfig(level=logging.INFO)
+        logger.basicConfig(level=logger.INFO)
     elif args.verbosity > 1:
-        logging.basicConfig(level=logging.DEBUG)
+        logger.basicConfig(level=logger.DEBUG)
     else:
-        logging.basicConfig()
+        logger.basicConfig()
 
     app = QApplication(sys.argv)
     view = MainWindowQtView()

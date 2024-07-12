@@ -28,13 +28,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade setuptools
-        pip install -e .[dev]  # This installs your package along with both runtime and development dependencies
+        # Install packages along with both runtime and development dependencies
+        pip install -e .[dev]
 
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=6 --max-line-length=120 --statistics  # do not fail on these errors
+        flake8 . --count --exit-zero --max-complexity=6 --max-line-length=127 --statistics  # do not fail on these errors
 
     - name: Test with pytest
       run: |
