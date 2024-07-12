@@ -76,7 +76,7 @@ def main(args=None):
 
     table_position = None
     if parsed_args.table_position:
-        table_position = tuple(float(x) for x in parsed_args.table_position.split(","))
+        table_position = tuple(10.0 * float(x) for x in parsed_args.table_position.split(","))  # convert to mm
 
     weights = None
     if parsed_args.weights:

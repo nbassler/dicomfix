@@ -217,10 +217,10 @@ class DicomFix:
                 ibs.IonControlPointSequence[0].TableTopVerticalPosition = table_position[0]
                 ibs.IonControlPointSequence[0].TableTopLongitudinalPosition = table_position[1]
                 ibs.IonControlPointSequence[0].TableTopLateralPosition = table_position[2]
-            logger.info(f"Table vertical position: {ibs.IonControlPointSequence[0].TableTopVerticalPosition} [cm]")
+            logger.info(f"Table vertical position: {ibs.IonControlPointSequence[0].TableTopVerticalPosition * 0.1:8.2f} [cm]")
             logger.info("Table longitudinal position: " +
-                        f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition} [cm]")
-            logger.info(f"Table lateral position: {ibs.IonControlPointSequence[0].TableTopLateralPosition} [cm]")
+                        f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition * 0.1:8.2f} [cm]")
+            logger.info(f"Table lateral position: {ibs.IonControlPointSequence[0].TableTopLateralPosition * 0.1:8.2f} [cm]")
 
     def print_spot_comparison(self, layer, scale_factor, original_weights, modified_weights, num_values):
         """Print num_values of spot weights, before and after for checking."""
