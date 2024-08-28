@@ -78,6 +78,10 @@ def main(args=None):
     if parsed_args.table_position:
         table_position = tuple(10.0 * float(x) for x in parsed_args.table_position.split(","))  # convert to mm
 
+    snout_position = None
+    if parsed_args.snout_position:
+        snout_position = float(parsed_args.snout_position) * 10.0  # convert to mm
+
     weights = None
     if parsed_args.weights:
         # csv_weights = read_weights_from_csv(args.weights)
@@ -91,7 +95,7 @@ def main(args=None):
     df.copy(weights, parsed_args.approve, parsed_args.intent_curative, parsed_args.date,
             parsed_args.print_spots, gantry_angles,
             parsed_args.duplicate_fields, parsed_args.rescale_dose, parsed_args.rescale_factor,
-            table_position, parsed_args.snout_position,
+            table_position, snout_position,
             parsed_args.treatment_machine, parsed_args.plan_label, parsed_args.patient_name,
             parsed_args.reviewer_name,
             parsed_args.wizard_tr4,

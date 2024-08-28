@@ -132,8 +132,8 @@ class DicomFix:
             for i, ibs in enumerate(new_dicom_data.IonBeamSequence):
                 old_ga = ibs.IonControlPointSequence[0].GantryAngle
                 ibs.IonControlPointSequence[0].GantryAngle = gantry_angles[i]
-                logger.info(f"Gantry angle field #{i+1} changed from {old_ga} to \
-                             {ibs.IonControlPointSequence[0].GantryAngle}")
+                _ga = ibs.IonControlPointSequence[0].GantryAngle
+                logger.info(f"Gantry angle field #{i+1} changed from {old_ga:8.2f} to {_ga:8.2f}")
 
         # rescale must be done BEFORE duplicate of fields, since it uses dicom_data which must be in sync
         # with new_dicom_data in terms of number of fields.
@@ -221,6 +221,12 @@ class DicomFix:
             logger.info("Table longitudinal position: " +
                         f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition * 0.1:8.2f} [cm]")
             logger.info(f"Table lateral position: {ibs.IonControlPointSequence[0].TableTopLateralPosition * 0.1:8.2f} [cm]")
+
+        if snout_position:
+            for ibs in new_dicom_data.IonBeamSequence:
+                ibs.IonControlPointSequence[0].SnoutPosition = snout_position
+            _sp = new_dicom_data.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition
+            logger.info(f"Snout position set to {_sp * 0.1: 8.2f}[cm] for all fields.")
 
     def print_spot_comparison(self, layer, scale_factor, original_weights, modified_weights, num_values):
         """Print num_values of spot weights, before and after for checking."""
