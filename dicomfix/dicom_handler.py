@@ -390,3 +390,33 @@ class DicomFix:
             logger.info("Beam Dose                 : " +
                         f"{original_beam_dose:14.2f}  {new_beam_dose:14.2f}  [Gy(RBE)]] ")
         # end of j,ion_beam loop over IonBeamSequence
+
+    def raystation_fix(self):
+        """
+            Apply RayStation specific fixes to the dicom plan.
+            - Set Manufacturer to RaySearch Laboratories
+            - Set table positions to 0 for all fields
+            - Set target prescription dose to 1.1 Gy(RBE) if it is not already set
+        """
+        for ibs in self.dcm_new.IonBeamSequence:
+            for icps in ibs.IonControlPointSequence:
+                # copy energy information to every second control point
+                if icps.ControlPointIndex % 2 == 0:
+                    icps.NominalBeamEnergy = icps.NominalBeamEnergy
+        dcm.Manufacturer = "RaySearch Laboratories"
+
+        # set table positions to 0 for all fields
+        for ibs in self.dcm_new.IonBeamSequence:
+            for icps in ibs.IonControlPointSequence:
+                icps.TableTopVerticalPosition = 0
+                icps.TableTopLongitudinalPosition = 0
+                icps.TableTopLateralPosition = 0
+                logger.debug(f"TableTopVerticalPosition {icps.TableTopVerticalPosition}")
+                logger.debug(f"TableTopLongitudinalPosition {icps.TableTopLongitudinalPosition}")
+                logger.debug(f"TableTopLateralPosition {icps.TableTopLateralPosition}")
+
+        # set target prescription dose to 1.1 Gy(RBE) if it is not already set
+        for i, rds in enumerate(self.dcm_new.ReferencedDoseSequence):
+            if rds.TargetPrescriptionDose != 1.1:
+                rds.TargetPrescriptionDose = 1.1
+                logger.info(f"Target prescription dose set to {rds.TargetPrescriptionDose} Gy(RBE)")
