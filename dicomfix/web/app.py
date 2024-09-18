@@ -37,7 +37,7 @@ if uploaded_file is not None and st.session_state.dicom_util is None:
 
 # Sidebar options for modifying the DICOM file
 if st.session_state.dicom_util:
-    st.sidebar.subheader("Modifications")
+    st.sidebar.subheader("Tasks")
 
     if st.sidebar.button("Approve Plan"):
         st.session_state.dicom_util.approve_plan()
@@ -56,13 +56,58 @@ if st.session_state.dicom_util:
         st.session_state.dicom_util.set_treatment_machine(st.session_state.treatment_machine)
         update_inspect()
 
+    current_machine = st.session_state.dicom_util.dicom.IonBeamSequence[0].TreatmentMachineName
     st.sidebar.selectbox(
         "Select Treatment Machine",
         options=["TR1", "TR2", "TR3", "TR4"],
-        index=["TR1", "TR2", "TR3", "TR4"].index(st.session_state.get("treatment_machine", "TR1")),
+        index=["TR1", "TR2", "TR3", "TR4"].index(st.session_state.get("treatment_machine", current_machine)),
         key="treatment_machine",
         on_change=set_treatment_machine
     )
+
+    # Add a widget for setting table position
+
+    def set_table_position():
+        # Convert the table position inputs (in cm) to mm
+        vertical = st.session_state.vertical_position * 10.0
+        longitudinal = st.session_state.longitudinal_position * 10.0
+        lateral = st.session_state.lateral_position * 10.0
+        st.session_state.dicom_util.set_table_position((vertical, longitudinal, lateral))
+        update_inspect()
+
+    # Table position input fields
+    st.sidebar.subheader("Set Table Position (in cm)")
+
+    ic = st.session_state.dicom_util.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+    # Use st.number_input for each coordinate (vertical, longitudinal, and lateral)
+    vertical = st.sidebar.number_input("Vertical Position [cm]",
+                                       value=ic.TableTopVerticalPosition * 0.1,
+                                       step=0.1, key="vertical_position")
+    longitudinal = st.sidebar.number_input("Longitudinal Position [cm]",
+                                           value=ic.TableTopLongitudinalPosition * 0.1,
+                                           step=0.1, key="longitudinal_position")
+    lateral = st.sidebar.number_input("Lateral Position [cm]", value=ic.TableTopLateralPosition * 0.1,
+                                      step=0.1, key="lateral_position")
+
+    # Add a button to apply the table position
+    if st.sidebar.button("Set Table Position"):
+        set_table_position()
+
+    # Add a widget for setting a new dose value
+    def set_new_dose():
+        new_dose = st.session_state.new_dose_value
+        st.session_state.dicom_util.rescale_dose(new_dose)
+        update_inspect()
+
+    # Add a number input widget for the new dose
+    st.sidebar.subheader("Set New Dose (Gy[RBE])")
+
+    # Use st.number_input for the new dose
+    st.sidebar.number_input("New Dose (Gy[RBE])", value=2.0, step=0.1, key="new_dose_value")
+
+    # Add a button to apply the new dose
+    if st.sidebar.button("Set New Dose"):
+        set_new_dose()
 
     # Modify the downloaded filename to include _DICOMFIX
     original_filename = st.session_state.uploaded_filename
@@ -79,8 +124,10 @@ if st.session_state.dicom_util:
         mime="application/octet-stream"
     )
 
+
 # Display DICOM inspection results at the end after all updates
 if st.session_state.dicom_util:
-    st.text_area("DICOM Inspection", value=st.session_state.dicom_info, height=400)
+    # st.text_area("DICOM Inspection", value=st.session_state.dicom_info, height=400)
+    st.text(st.session_state.dicom_info)
 else:
     st.write("Please upload a DICOM file using the left sidebar.")
