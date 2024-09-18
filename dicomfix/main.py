@@ -3,13 +3,23 @@ import logging
 from dicomfix.dicomutil import DicomUtil  # Use the new DicomUtil class
 from dicomfix.config_parser import parse_arguments
 from dicomfix.config import Config
+from dicomfix.dicomexport import DicomExport
 
 logger = logging.getLogger(__name__)
 
 
 def main(args=None):
-    """Main routine for handling the DICOM manipulation."""
+    """
+    Main routine for handling DICOM manipulation in the dicomfix tool.
 
+    This function parses command-line arguments, applies modifications to the DICOM plan using
+    the DicomUtil class, and saves the modified DICOM file. It also supports exporting the plan
+    in Varian RACEHORSE format if requested.
+
+    Args:
+        args (list of str, optional): Command-line arguments. Defaults to None, which means
+                                      arguments will be taken from sys.argv.
+    """
     if args is None:
         args = sys.argv[1:]
 
@@ -44,7 +54,7 @@ def main(args=None):
 
     # Export RACEHORSE file if requested
     if config.export_racehorse:
-        dp.export_racehorse()
+        DicomExport.export(dp.dicom, config.export_racehorse, "racehorse")
 
 
 if __name__ == '__main__':
