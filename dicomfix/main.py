@@ -43,7 +43,7 @@ def main(args=None):
 
     # Handle inspect option
     if config.inspect:
-        dp.inspect()
+        logger.info(dp.inspect())
         exit(0)
 
     # Apply all modifications to the plan using the config object

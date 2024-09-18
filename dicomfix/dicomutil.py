@@ -126,7 +126,6 @@ class DicomUtil:
     def set_current_date(self):
         """Set the current date and time in the DICOM plan."""
         d = self.dicom
-        # Logic for setting the current date
         _dt = datetime.datetime.now()
         d.RTPlanDate = _dt.strftime("%Y%m%d")
         d.RTPlanTime = _dt.strftime("%H%M%S.%f")
@@ -578,61 +577,78 @@ class DicomUtil:
 
     def inspect(self):
         """
-        Inspect and log key attributes of the DICOM file.
+        Inspect and return key attributes of the DICOM file as a string.
 
         This method provides a detailed inspection of the DICOM plan, including patient details,
         plan metadata, field information, gantry angles, snout positions, and energy layer parameters.
-        It logs all relevant information to help with verification and debugging.
         """
         d = self.dicom
-        logger.info(f"Patient name             : '{d.PatientName}'")
-        logger.info(f"Approval status          : '{d.ApprovalStatus}'")
-        logger.info(f"RT Plan Date             : '{d.RTPlanDate}'")
-        logger.info(f"RT Plan Time             : '{d.RTPlanTime}'")
-        logger.info(f"Manufacturer             : '{d.Manufacturer}'")
-        logger.info(f"Plan Label               : '{d.RTPlanLabel}'")
-        logger.info(f"Operator's Name          : '{d.OperatorsName}'")
-        logger.info(f"Reviewer Name            : '{d.ReviewerName}'")
-        logger.info(f"Approval Status          : '{d.ApprovalStatus}'")
-        logger.info(f"Plan Intent              : '{d.PlanIntent}'")
-        # Additional info which is assumed constant across all instances:
-        logger.info(f"Number of fields         : {d.FractionGroupSequence[0].NumberOfBeams}")
-        logger.info(f"Beam Meterset            : {d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset:.2f} MU")
-        logger.info(
-            f"Beam Dose                : {d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose:.2f} Gy(RBE)")
-        logger.info(f"Treatment Machine Name   : '{d.IonBeamSequence[0].TreatmentMachineName}'")
-        for i, ib in enumerate(d.IonBeamSequence):
-            logger.info(HLINE)
-            logger.info(f"    Field #{i+1}")
-            logger.info(HLINE)
-            logger.info(f"    Beam Name                : '{ib.BeamName}'")
-            logger.info(f"    Number of control points : {ib.NumberOfControlPoints}")
-            logger.info(f"    Number of energy layers  : {ib.NumberOfControlPoints/2:2}")
-            logger.info(f"    Final Cumulative Meterset Weight : {ib.FinalCumulativeMetersetWeight:.2f}")
-            icp = ib.IonControlPointSequence[0]
-            # the following info is only stored in the first IonControlPoint
-            logger.info(f"            Gantry Angle                     : {icp.GantryAngle:8.2f} deg")
-            logger.info(f"            Snout Position                   : {icp.SnoutPosition*0.1:8.2f} cm")
-            logger.info(f"            Table Top Vertical Position      : {icp.TableTopVerticalPosition*0.1:8.2f} cm")
-            logger.info(
-                f"            Table Top Longitudinal Position  : {icp.TableTopLongitudinalPosition*0.1:8.2f} cm")
-            logger.info(f"            Table Top Lateral Position       : {icp.TableTopLateralPosition*0.1:8.2f} cm")
 
-            layer_count = 0
-            for j, icp in enumerate(ib.IonControlPointSequence):
+        # Safely access each attribute, checking for existence
+        def safe_get(attr, default="N/A"):
+            return getattr(d, attr, default)
 
-                if (j+1) % 2 == 0:  # skip odd layers, as they are repititions of first layers, but with no spot weights
-                    continue
+        # Initialize a list to collect the output lines
+        output = []
 
-                layer_count += 1
-                logger.info(HLINE)
-                logger.info(f"        Energy Layer # {layer_count:02}")
-                logger.info(f"            Nominal Beam Energy              : {icp.NominalBeamEnergy:.2f} MeV")
-                logger.info(f"            Number of Scan Spot Positions    : {icp.NumberOfScanSpotPositions:}")
-                logger.info(f"            Cumulative Meterset Weight       : {icp.CumulativeMetersetWeight:.2f}")
-        logger.info(HLINE)
+        output.append(f"Patient name             : '{safe_get('PatientName')}'")
+        output.append(f"Approval status          : '{safe_get('ApprovalStatus')}'")
+        output.append(f"RT Plan Date             : '{safe_get('RTPlanDate')}'")
+        output.append(f"RT Plan Time             : '{safe_get('RTPlanTime')}'")
+        output.append(f"Manufacturer             : '{safe_get('Manufacturer')}'")
+        output.append(f"Plan Label               : '{safe_get('RTPlanLabel')}'")
+        output.append(f"Operator's Name          : '{safe_get('OperatorsName')}'")
+        output.append(f"Reviewer Name            : '{safe_get('ReviewerName')}'")
+        output.append(f"Approval Status          : '{safe_get('ApprovalStatus')}'")
+        output.append(f"Plan Intent              : '{safe_get('PlanIntent')}'")
 
-        logger.debug(f"Entire DICOM file:\n\n{d}")
+        if hasattr(d, 'FractionGroupSequence'):
+            fg = d.FractionGroupSequence[0]
+            output.append(f"Number of fields         : {fg.NumberOfBeams}")
+            if hasattr(fg.ReferencedBeamSequence[0], 'BeamMeterset'):
+                output.append(f"Beam Meterset            : {fg.ReferencedBeamSequence[0].BeamMeterset:.2f} MU")
+            if hasattr(fg.ReferencedBeamSequence[0], 'BeamDose'):
+                output.append(f"Beam Dose                : {fg.ReferencedBeamSequence[0].BeamDose:.2f} Gy(RBE)")
+
+        if hasattr(d, 'IonBeamSequence'):
+            ib = d.IonBeamSequence[0]
+            output.append(f"Treatment Machine Name   : '{ib.TreatmentMachineName}'")
+            for i, ib in enumerate(d.IonBeamSequence):
+                output.append(HLINE)
+                output.append(f"    Field #{i+1}")
+                output.append(HLINE)
+                output.append(f"    Beam Name                : '{ib.BeamName}'")
+                output.append(f"    Number of control points : {ib.NumberOfControlPoints}")
+                output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints / 2:2}")
+                output.append(f"    Final Cumulative Meterset Weight : {ib.FinalCumulativeMetersetWeight:.2f}")
+
+                if hasattr(ib, 'IonControlPointSequence'):
+                    icp = ib.IonControlPointSequence[0]
+                    output.append(f"            Gantry Angle                     : {icp.GantryAngle:8.2f} deg")
+                    output.append(f"            Snout Position                   : {icp.SnoutPosition * 0.1:8.2f} cm")
+                    output.append(
+                        f"            Table Top Vertical Position      : {icp.TableTopVerticalPosition * 0.1:8.2f} cm")
+                    output.append(
+                        f"            Table Top Longitudinal Position  : {icp.TableTopLongitudinalPosition * 0.1:8.2f} cm")
+                    output.append(
+                        f"            Table Top Lateral Position       : {icp.TableTopLateralPosition * 0.1:8.2f} cm")
+
+                layer_count = 0
+                for j, icp in enumerate(ib.IonControlPointSequence):
+
+                    if (j + 1) % 2 == 0:
+                        continue
+
+                    layer_count += 1
+                    output.append(HLINE)
+                    output.append(f"        Energy Layer # {layer_count:02}")
+                    output.append(f"            Nominal Beam Energy              : {icp.NominalBeamEnergy:.2f} MeV")
+                    output.append(f"            Number of Scan Spot Positions    : {icp.NumberOfScanSpotPositions}")
+                    output.append(f"            Cumulative Meterset Weight       : {icp.CumulativeMetersetWeight:.2f}")
+
+        output.append(HLINE)
+        # Return the concatenated output as a string
+        return "\n".join(output)
 
     def print_dicom_spot_comparison(self, num_values):
         """
