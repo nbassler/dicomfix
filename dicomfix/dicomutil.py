@@ -43,7 +43,7 @@ class DicomUtil:
         if config.intent_curative:
             self.set_intent_to_curative()
 
-        if config.rescale_dose or config.rescale_factor or config.rescale_minimize:
+        if config.rescale_dose or config.rescale_factor or config.rescale_minimize or config.weights:
             self.rescale_plan(config)
 
         if config.duplicate_fields:
@@ -103,12 +103,27 @@ class DicomUtil:
 
     def rescale_plan(self, config):
         """Rescale the DICOM plan based on the provided settings."""
+        layer_factors = None
+        if config.weights:
+            # Read the weights from the CSV file
+            layer_factors = []
+            with open(config.weights, 'r') as f:
+                for line in f:
+                    layer_factors.append(float(line.strip()))
+            logger.info(f"Read {len(layer_factors)} layer factors from '{config.weights}'")
+
         if config.rescale_minimize:
+            # in case scale factors or layer factors are given with minimize, abort.
+            if config.rescale_factor or layer_factors:
+                logger.error("Cannot minimize plan with -rd, -rs or -w option.")
+                exit()
             self.minimize_plan()
         elif config.rescale_dose:
-            self.rescale_dose(config.rescale_dose)
+            self.rescale_dose(config.rescale_dose, layer_factors=layer_factors)
         elif config.rescale_factor:
-            self.apply_rescale_factor(config.rescale_factor)
+            self.apply_rescale_factor(config.rescale_factor, layer_factors=layer_factors)
+        elif layer_factors:
+            self.apply_rescale_factor(1.0, layer_factors=layer_factors)
 
     def minimize_plan(self):
         """Minimize the plan so smallest spot is MU_MIN"""
@@ -136,13 +151,13 @@ class DicomUtil:
         logger.info(f"rescale by factor: {rescale:.4f}")
         self.apply_rescale_factor(rescale)
 
-    def rescale_dose(self, new_dose):
+    def rescale_dose(self, new_dose, layer_factors=None):
         """Rescale the dose."""
         d = self.dicom
         for j, ib in enumerate(d.IonBeamSequence):
             scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
             logger.info(f"Rescaling dose to {new_dose:.2f} Gy(RBE)")
-            self.apply_rescale_factor(scale_factor)
+            self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
 
     def apply_rescale_factor(self, rescale_factor=1.0, layer_factors=None):
         """Apply rescale factor to the plan."""
@@ -162,8 +177,8 @@ class DicomUtil:
 
             if layer_factors:
                 if layer_factors_len != number_of_energy_layers:
-                    raise Exception(f"CSV file energy layers {layer_factors_len} must " +
-                                    f"match number of energy layers in dicom file {number_of_energy_layers}.")
+                    raise Exception(f"Number of energy layer scaling factors ({layer_factors_len}) must " +
+                                    f"match number of energy layers in dicom file ({number_of_energy_layers}).")
             original_beam_dose = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
             original_beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset  # in MU
             # original_beam_meterset_per_weight = original_beam_meterset / ib.FinalCumulativeMetersetWeight
@@ -196,8 +211,10 @@ class DicomUtil:
                 if any(w > 0.0 for w in icp.ScanSpotMetersetWeights):
                     # Apply the correct factor for the real energy layer
                     if layer_factors:
+                        logger.info(
+                            f"Reduce cumulative weight in layer {real_energy_layer_index} " +
+                            f"by factor: {layer_factors[real_energy_layer_index]:.4f}")
                         layer_factor = layer_factors[real_energy_layer_index]
-                        logger.debug(f"CSV weight energy layer {real_energy_layer_index} factor: {layer_factor:.4f}")
                     else:
                         layer_factor = 1.0
 
@@ -389,31 +406,34 @@ class DicomUtil:
             - Set target prescription dose to 1.1 Gy(RBE) if it is not already set
         """
         d = self.dicom
-        _last_icps = None
-        for ibs in d.IonBeamSequence:
-            for i, icps in enumerate(ibs.IonControlPointSequence):
-                # copy energy information to every second control point
-                if icps.ControlPointIndex % 2 == 0:
-                    icps.NominalBeamEnergy = _last_icps.NominalBeamEnergy
-                _last_icps = icps
+        # _last_icps = None
+        # for ib in d.IonBeamSequence:
+        #     for i, icp in enumerate(ib.IonControlPointSequence):
+        #         # copy energy information to every second control point
+        #         if icp.ControlPointIndex % 2 == 0:
+        #             icp.NominalBeamEnergy = _last_icps.NominalBeamEnergy
+        #         _last_icp = icp
         d.Manufacturer = "RaySearch Laboratories"
 
         # set table positions to 0 for all fields
-        for ibs in d.IonBeamSequence:
-            for icps in ibs.IonControlPointSequence:
-                icps.TableTopVerticalPosition = 0
-                icps.TableTopLongitudinalPosition = 0
-                icps.TableTopLateralPosition = 0
-                logger.debug(f"TableTopVerticalPosition {icps.TableTopVerticalPosition}")
-                logger.debug(f"TableTopLongitudinalPosition {icps.TableTopLongitudinalPosition}")
-                logger.debug(f"TableTopLateralPosition {icps.TableTopLateralPosition}")
+        for ib in d.IonBeamSequence:
+            for icp in ib.IonControlPointSequence:
+                icp.TableTopVerticalPosition = 0.0
+                icp.TableTopLongitudinalPosition = 0.0
+                icp.TableTopLateralPosition = 0.0
+                logger.debug(f"TableTopVerticalPosition {icp.TableTopVerticalPosition}")
+                logger.debug(f"TableTopLongitudinalPosition {icp.TableTopLongitudinalPosition}")
+                logger.debug(f"TableTopLateralPosition {icp.TableTopLateralPosition}")
 
         # Set target prescription dose to 1.1 Gy(RBE) if it is not already set or missing
-        for i, rds in enumerate(d.ReferencedDoseSequence):
-            if not hasattr(rds, 'TargetPrescriptionDose') or rds.TargetPrescriptionDose is None:
-                rds.TargetPrescriptionDose = 1.1  # Set a default value if missing
-                logger.info(
-                    f"Target prescription dose was missing or not set. Default set to {rds.TargetPrescriptionDose} Gy(RBE)")
+        if not hasattr(d, "ReferencedDoseSequence"):
+            logger.info(" RayStation: ReferencedDoseSequence is missing. Adding a default value.")
+            d.ReferencedDoseSequence = [pydicom.Dataset()]
+        for i, rd in enumerate(d.ReferencedDoseSequence):
+            if not hasattr(rd, 'TargetPrescriptionDose') or rd.TargetPrescriptionDose is None:
+                rd.TargetPrescriptionDose = 1.1  # Set a default value if missing
+                logger.info(" RayStation: Target prescription dose was missing or not set." +
+                            f"Default set to {rd.TargetPrescriptionDose} Gy(RBE)")
 
     def save(self, output_file):
         """Save the modified DICOM file."""

@@ -398,12 +398,13 @@ class DicomFix:
             - Set table positions to 0 for all fields
             - Set target prescription dose to 1.1 Gy(RBE) if it is not already set
         """
-        for ibs in self.dcm_new.IonBeamSequence:
+        d = self.dcm
+        for ibs in d.IonBeamSequence:
             for icps in ibs.IonControlPointSequence:
                 # copy energy information to every second control point
                 if icps.ControlPointIndex % 2 == 0:
                     icps.NominalBeamEnergy = icps.NominalBeamEnergy
-        dcm.Manufacturer = "RaySearch Laboratories"
+        d.Manufacturer = "RaySearch Laboratories"
 
         # set table positions to 0 for all fields
         for ibs in self.dcm_new.IonBeamSequence:
@@ -417,6 +418,6 @@ class DicomFix:
 
         # set target prescription dose to 1.1 Gy(RBE) if it is not already set
         for i, rds in enumerate(self.dcm_new.ReferencedDoseSequence):
-            if rds.TargetPrescriptionDose != 1.1:
+            if not hasattr(rds, 'TargetPrescriptionDose'):
                 rds.TargetPrescriptionDose = 1.1
                 logger.info(f"Target prescription dose set to {rds.TargetPrescriptionDose} Gy(RBE)")
