@@ -1,13 +1,25 @@
 import argparse
+from dicomfix.__version__ import __version__
 
 
 def parse_arguments(args=None):
     """
-    Parse command-line arguments and return them.
+    Parse command-line arguments for the dicomfix tool.
+
+    This function defines and parses the available command-line arguments to modify and inspect
+    DICOM proton therapy treatment plans. Supported options include modifying plan intent,
+    rescaling dose, setting positions, exporting formats, and more.
+
+    Args:
+        args (list of str, optional): List of command-line arguments to parse. Defaults to None,
+                                      which means arguments will be taken from sys.argv.
+
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
     """
     parser = argparse.ArgumentParser(description='Modify ECLIPSE DICOM proton therapy treatment plans.')
 
-    parser.add_argument('inputfile', help='Input DICOM filename', type=str)
+    parser.add_argument('inputfile', nargs='?', help='Input DICOM filename', type=str)
 
     parser.add_argument('-w', '--weights', help='Path to weights CSV file', default=None)
     parser.add_argument('-o', '--output', default="output.dcm", help='Path to output DICOM file')
@@ -54,5 +66,6 @@ def parse_arguments(args=None):
 
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
+    parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')
 
     return parser.parse_args(args)

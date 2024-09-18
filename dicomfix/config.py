@@ -1,9 +1,19 @@
 class Config:
     """
     Configuration class that holds all the settings and arguments for the dicomfix tool.
+
+    This class parses and stores the settings provided via command-line arguments
+    for manipulating and exporting DICOM files, including options for rescaling,
+    modifying positions, and exporting formats.
     """
 
     def __init__(self, parsed_args):
+        """
+        Initialize the configuration object with parsed command-line arguments.
+
+        Args:
+            parsed_args (argparse.Namespace): The parsed command-line arguments.
+        """
         self.inputfile = parsed_args.inputfile
         self.weights = parsed_args.weights
         self.output = parsed_args.output
@@ -30,18 +40,45 @@ class Config:
 
     @staticmethod
     def parse_angles(angles):
+        """
+        Parse a comma-separated list of angles into a tuple of floats.
+
+        Args:
+            angles (str): A comma-separated string of angles.
+
+        Returns:
+            tuple of float: A tuple of parsed angles, or None if not provided.
+        """
         if angles:
             return tuple(float(x) for x in angles.split(","))
         return None
 
     @staticmethod
     def parse_position(position):
+        """
+        Parse a comma-separated list of positions into a tuple of floats in millimeters (mm).
+
+        Args:
+            position (str): A comma-separated string of positions.
+
+        Returns:
+            tuple of float: A tuple of parsed positions converted to mm, or None if not provided.
+    """
         if position:
             return tuple(10.0 * float(x) for x in position.split(","))  # convert to mm
         return None
 
     @staticmethod
     def parse_snout_position(snout_position):
+        """
+        Parse the snout position and convert it to millimeters (mm).
+
+        Args:
+            snout_position (str): The snout position in centimeters.
+
+        Returns:
+            float: The parsed snout position in mm, or None if not provided.
+        """
         if snout_position:
             return float(snout_position) * 10.0  # convert to mm
         return None

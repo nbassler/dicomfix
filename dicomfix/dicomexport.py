@@ -5,10 +5,27 @@ logger = logging.getLogger(__name__)
 
 
 class DicomExport:
+    """
+    A class for exporting DICOM plans in various formats.
+
+    Supports the following export formats:
+    - RACEHORSE: Varian service mode format for spot lists.
+    - Spotlist: A simplified list format containing energy, position (X, Y), and MU.
+    """
     @staticmethod
     def export(dicom, output_file: str = None, export_format: str = None, layer=-1, field=-1):
         """
         Main export function that handles different formats.
+
+        Args:
+            dicom (pydicom.Dataset): The DICOM dataset to be exported.
+            output_file (str): The base filename to which the export will be saved. Defaults to "export".
+            export_format (str): The export format to use. Supported formats are "racehorse" and "spotlist".
+            layer (int): Optional layer number to export. Defaults to -1 (all layers).
+            field (int): Optional field number to export. Defaults to -1 (all fields).
+
+        Raises:
+            ValueError: If an unknown export format is specified.
         """
         if export_format == "racehorse":
             DicomExport.export_racehorse(dicom, output_file, layer, field)
@@ -19,8 +36,15 @@ class DicomExport:
 
     @staticmethod
     def export_racehorse(dicom, output_file: str = "export", layer=-1, field=-1):
-        """Export to Varian service mode"""
+        """
+        Export the DICOM data to Varian's RACEHORSE service mode format.
 
+        Args:
+            dicom (pydicom.Dataset): The DICOM dataset to be exported.
+            output_file (str): The base filename to which the export will be saved.
+            layer (int): Optional layer number to export. Defaults to -1 (all layers).
+            field (int): Optional field number to export. Defaults to -1 (all fields).
+        """
         d = dicom
         dt = datetime.datetime.now()
         tmstr = dt.strftime("%d-%m-%Y")
@@ -86,8 +110,15 @@ class DicomExport:
 
     @staticmethod
     def export_spotlist(dicom, output_file: str = "export", layer=-1, field=-1):
-        """Export simple spotlist (Energy [MeV], X [cm], Y [cm], MU)"""
+        """
+        Export a simple spotlist containing energ (MeV), X, Y positions (cm), and MU.
 
+        Args:
+            dicom (pydicom.Dataset): The DICOM dataset to be exported.
+            output_file (str): The base filename to which the export will be saved.
+            layer (int): Optional layer number to export. Defaults to -1 (all layers).
+            field (int): Optional field number to export. Defaults to -1 (all fields).
+        """
         d = dicom
 
         filename = f"{output_file}.csv"
@@ -130,6 +161,6 @@ class DicomExport:
 
                     for n, wt in enumerate(icp.ScanSpotMetersetWeights):
                         mu = wt * meterset_per_weight
-                        x = icp.ScanSpotPositionMap[n*2]
-                        y = icp.ScanSpotPositionMap[n*2+1]
-                        f.write(f"{nominal_beam_energy:8.2f},{x:8.2f},{y:8.2f},{mu:8.2f}\n")  # energy, mm, mm, monitor units
+                        x = icp.ScanSpotPositionMap[n*2] * 0.1
+                        y = icp.ScanSpotPositionMap[n*2+1] * 0.1
+                        f.write(f"{nominal_beam_energy:8.2f},{x:8.2f},{y:8.2f},{mu:8.2f}\n")  # MeV, cm, cm, monitor units

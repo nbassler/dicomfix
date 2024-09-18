@@ -1,3 +1,11 @@
+"""
+dicomutil.py
+
+This module provides utilities for handling and manipulating DICOM files,
+with a focus on proton therapy treatment plans. It includes functionality
+for loading DICOM files, rescaling spot weights, and managing dose adjustments.
+"""
+
 import logging
 import copy
 import datetime
@@ -14,8 +22,30 @@ HLINE = 72 * '-'
 
 
 class DicomUtil:
+    """
+    A utility class for handling DICOM proton therapy treatment plans.
+
+    This class provides methods for loading, modifying, and saving DICOM
+    files related to proton therapy, including rescaling monitor units (MU)
+    and adjusting dose coefficients. It also tracks the total number of spots
+    in the DICOM file and handles low MU spot removal.
+
+    Attributes:
+        dicom: The loaded DICOM object representing the treatment plan.
+        filename: The name of the DICOM input file.
+        points_discarded: Counter for spots discarded due to low MU.
+        old_dicom: A deepcopy of the original DICOM object for comparison purposes.
+        spots_discarded: Number of spots discarded during rescaling or filtering.
+        total_number_of_spots: The total number of spots in the treatment plan.
+    """
+
     def __init__(self, inputfile):
-        # Load the DICOM file
+        """
+        Initialize the DicomUtil class by loading the DICOM file and counting spots.
+
+        Args:
+            inputfile (str): Path to the DICOM file to be loaded.
+        """
         self.dicom = self.load_dicom(inputfile)
         self.filename = inputfile
         self.points_discarded = 0
@@ -28,11 +58,19 @@ class DicomUtil:
 
     @staticmethod
     def load_dicom(inputfile):
-        """Load the DICOM file."""
+        """
+        Load the DICOM file using pydicom.
+
+        Args:
+            inputfile (str): Path to the DICOM file to be loaded.
+
+        Returns:
+            pydicom.dataset.FileDataset: The loaded DICOM object.
+        """
         return pydicom.dcmread(inputfile)
 
     def modify(self, config):
-        """Modify the DICOM file based on the configuration provided."""
+        """Modify the DICOM file based on provided configuration options."""
 
         if config.approve:
             self.approve_plan()
@@ -80,13 +118,13 @@ class DicomUtil:
             self.print_dicom_spot_comparison(config.print_spots)
 
     def approve_plan(self):
-        """Approve the DICOM plan."""
+        """Set the approval status of the plan to 'APPROVED'."""
         d = self.dicom
         d.ApprovalStatus = "APPROVED"
         logger.info(f"New approval status {d.ApprovalStatus}")
 
     def set_current_date(self):
-        """Set the current date in the plan."""
+        """Set the current date and time in the DICOM plan."""
         d = self.dicom
         # Logic for setting the current date
         _dt = datetime.datetime.now()
@@ -96,10 +134,10 @@ class DicomUtil:
         logger.info(f"New RT plan time {d.RTPlanTime}")
 
     def set_intent_to_curative(self):
-        """Set plan intent to CURATIVE."""
+        """Set the intent of the plan to 'CURATIVE'."""
         d = self.dicom
-        d.ApprovalStatus = "APPROVED"
-        logger.info(f"New approval status {d.ApprovalStatus}")
+        d.PlanIntent = "CURATIVE"
+        logger.info(f"New plan intent: {d.PlanIntent}")
 
     def rescale_plan(self, config):
         """Rescale the DICOM plan based on the provided settings."""
@@ -107,16 +145,19 @@ class DicomUtil:
         if config.weights:
             # Read the weights from the CSV file
             layer_factors = []
-            with open(config.weights, 'r') as f:
-                for line in f:
-                    layer_factors.append(float(line.strip()))
-            logger.info(f"Read {len(layer_factors)} layer factors from '{config.weights}'")
+
+            try:
+                with open(config.weights, 'r') as f:
+                    layer_factors = [float(line.strip()) for line in f if line.strip()]
+                logger.info(f"Read {len(layer_factors)} layer factors from '{config.weights}'")
+            except ValueError:
+                logger.error(f"Invalid value in weights file: '{config.weights}'")
+                raise
 
         if config.rescale_minimize:
             # in case scale factors or layer factors are given with minimize, abort.
             if config.rescale_factor or layer_factors:
-                logger.error("Cannot minimize plan with -rd, -rs or -w option.")
-                exit()
+                raise ValueError("Cannot minimize plan with -rd, -rs, or -w option.")
             self.minimize_plan()
         elif config.rescale_dose:
             self.rescale_dose(config.rescale_dose, layer_factors=layer_factors)
@@ -126,7 +167,7 @@ class DicomUtil:
             self.apply_rescale_factor(1.0, layer_factors=layer_factors)
 
     def minimize_plan(self):
-        """Minimize the plan so smallest spot is MU_MIN"""
+        """Minimize the plan so the smallest spot is equal to MU_MIN."""
         d = self.dicom
 
         mu_lowest = 9.9e9
@@ -152,7 +193,15 @@ class DicomUtil:
         self.apply_rescale_factor(rescale)
 
     def rescale_dose(self, new_dose, layer_factors=None):
-        """Rescale the dose."""
+        """
+        Rescale the DICOM plan to a new target dose.
+
+        Args:
+            new_dose (float): The new target dose in Gy(RBE) to which the plan should be rescaled.
+            layer_factors (list of float, optional): Optional list of scaling factors for each energy layer.
+                If provided, these factors are applied to each corresponding energy layer in the plan.
+                The length of the list should match the number of real energy layers in the DICOM plan.
+        """
         d = self.dicom
         for j, ib in enumerate(d.IonBeamSequence):
             scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
@@ -160,7 +209,23 @@ class DicomUtil:
             self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
 
     def apply_rescale_factor(self, rescale_factor=1.0, layer_factors=None):
-        """Apply rescale factor to the plan."""
+        """
+        Apply a rescaling factor to the entire DICOM plan.
+
+        This method resizes the dose and meterset weights across all fields and energy layers of the DICOM plan.
+        It supports a global rescale factor, as well as individual rescale factors for each energy layer. Additionally,
+        it handles spot elimination for spots that fall below a minimum monitor unit (MU) threshold.
+
+        Args:
+            rescale_factor (float): The global rescale factor to be applied across all fields and energy layers.
+                Defaults to 1.0 if no rescaling is needed.
+            layer_factors (list of float, optional): Optional list of rescale factors for each energy layer.
+                If provided, these will be applied to each corresponding energy layer. The length of this list must match
+                the number of real energy layers in the plan.
+
+        Raises:
+            ValueError: If the number of layer factors does not match the number of energy layers.
+        """
         d = self.dicom
 
         if layer_factors:
@@ -250,8 +315,8 @@ class DicomUtil:
 
             # test if real_energy_layer_index is equal to the number of energy layers
             if layer_factors and real_energy_layer_index != number_of_energy_layers:
-                raise Exception(f"CSV file energy layers {real_energy_layer_index} must " +
-                                f"match number of energy layers in dicom file {number_of_energy_layers}.")
+                raise ValueError(f"Given new energy layer weights {real_energy_layer_index} must " +
+                                 f"match number of energy layers in dicom file {number_of_energy_layers}.")
 
             # repeat loop to set the CumulativeDoseReferenceCoefficient for each energy layer
             # The CumulativeDoseReferenceCoefficient is rather a dimensionless factor, which is used to
@@ -298,7 +363,12 @@ class DicomUtil:
         # end of j,ion_beam loop over IonBeamSequence
 
     def duplicate_fields(self, n):
-        """Duplicate fields in the plan n times."""
+        """
+        Duplicate fields in the DICOM plan n times.
+
+        Args:
+            n (int): Number of times to duplicate each field.
+        """
         d = self.dicom
         fgs = d.FractionGroupSequence[0]
         nf = d.FractionGroupSequence[0].NumberOfBeams
@@ -322,14 +392,15 @@ class DicomUtil:
 
     def set_gantry_angles(self, gantry_angles):
         """
-            Set the gantry angles.
-            Mutiple gantry angles are provided as a tuple, one for each field.
-                """
+        Set the gantry angles for each field.
+
+        Args:
+            gantry_angles (tuple of float): A tuple containing the new gantry angle for each field.
+        """
         d = self.dicom
         number_of_fields = len(d.IonBeamSequence)
         if len(gantry_angles) != number_of_fields:
-            logger.error(f"Number of given gantry angles must match number of fields. \
-                            {number_of_fields} fields found.")
+            raise ValueError(f"Number of gantry angles must match number of fields. {number_of_fields} fields found.")
 
         for i, ibs in enumerate(d.IonBeamSequence):
             old_ga = ibs.IonControlPointSequence[0].GantryAngle
@@ -338,11 +409,16 @@ class DicomUtil:
             logger.info(f"Gantry angle field #{i+1} changed from {old_ga:8.2f} to {_ga:8.2f}")
 
     def set_table_position(self, table_position):
-        """Set the table position."""
+        """
+        Set the table position using three coordinates.
+
+        Args:
+            table_position (tuple of float): A tuple containing the new vertical, longitudinal,
+                                            and lateral positions, in that order. Each value is in [mm].
+        """
         d = self.dicom
         if len(table_position) != 3:
-            logger.error(f"Table Position expects three values, got {len(table_position)}.")
-            exit()
+            raise ValueError(f"Table Position expects three values, got {len(table_position)}.")
         for ibs in d.IonBeamSequence:
             ibs.IonControlPointSequence[0].TableTopVerticalPosition = table_position[0]
             ibs.IonControlPointSequence[0].TableTopLongitudinalPosition = table_position[1]
@@ -353,7 +429,12 @@ class DicomUtil:
         logger.info(f"Table lateral position      : {ibs.IonControlPointSequence[0].TableTopLateralPosition * 0.1:8.2f} cm")
 
     def set_snout_position(self, snout_position):
-        """Set snout position."""
+        """
+        Set snout position for all fields.
+
+        Args:
+            snout_position (float): The new snout position to set in mm.
+        """
         d = self.dicom
         for ibs in d.IonBeamSequence:
             ibs.IonControlPointSequence[0].SnoutPosition = snout_position
@@ -361,38 +442,63 @@ class DicomUtil:
         logger.info(f"Snout position set to {_sp * 0.1: 8.2f}[cm] for all fields.")
 
     def set_treatment_machine(self, machine_name):
-        """Set treatment machine."""
+        """
+        Set the treatment machine name for all fields.
+
+        Args:
+            machine_name (str): The name of the new treatment machine.
+        """
         d = self.dicom
         for ibs in d.IonBeamSequence:
             ibs.TreatmentMachineName = machine_name
         logger.info(f"New Treatment Machine Name  : '{d.IonBeamSequence[-1].TreatmentMachineName}'")
 
     def set_plan_label(self, plan_label):
-        """Set the plan label."""
+        """
+        Set the RT plan label.
+
+        Args:
+            plan_label (str): The new label for the RT plan.
+        """
         d = self.dicom
-        self.dicom = plan_label
+        d.RTPlanLabel = plan_label
         logger.info(f"New RT plan label           : '{d.RTPlanLabel}'")
 
     def set_patient_name(self, patient_name):
-        """Set the patient name."""
+        """
+        Set the patient's name in the DICOM plan.
+
+        Args:
+            patient_name (str): The patient's new name.
+        """
         d = self.dicom
         self.dicom.PatientName = patient_name
         logger.info(f"New patient name {d.PatientName}")
 
     def set_reviewer_name(self, reviewer_name):
-        """Set the reviewer name."""
+        """
+        Set the reviewer's name in the DICOM plan.
+
+        Args:
+            reviewer_name (str): The reviewer's new name.
+        """
         d = self.dicom
-        d.ReviwerName = reviewer_name
+        d.ReviewerName = reviewer_name
         logger.info(f"New reviewer name {d.ReviewerName}")
 
     def set_wizard_tr4(self):
-        """Prepare plan for TR4."""
+        """
+        Prepare the DICOM plan for TR4.
+
+        This method sets the treatment machine name to "TR4", adjusts all gantry angles to 90 degrees,
+        sets the snout position to 421.0 mm, and approves the plan.
+        """
         d = self.dicom
         d.ApprovalStatus = "APPROVED"
         for ibs in d.IonBeamSequence:
             ibs.TreatmentMachineName = "TR4"
             ibs.IonControlPointSequence[0].GantryAngle = 90.0
-            ibs.IonControlPointSequence[0].SnoutPosition = 421.0
+            ibs.IonControlPointSequence[0].SnoutPosition = 421.0  # 42.1 cm
         logger.info(f"All gantry angles set to \
                         {d.IonBeamSequence[-1].IonControlPointSequence[0].GantryAngle}")
         logger.info(f"All snout positions set to \
@@ -400,10 +506,12 @@ class DicomUtil:
 
     def fix_raystation(self):
         """
-            Apply RayStation specific fixes to the dicom plan.
-            - Set Manufacturer to RaySearch Laboratories
-            - Set table positions to 0 for all fields
-            - Set target prescription dose to 1.1 Gy(RBE) if it is not already set
+        Apply RayStation-specific fixes to the DICOM plan.
+
+        This method performs the following adjustments:
+        - Set the Manufacturer to "RaySearch Laboratories"
+        - Set all table positions (vertical, longitudinal, lateral) to 0 for each field
+        - Set the target prescription dose to 1.1 Gy(RBE) if it is missing or not set
         """
         d = self.dicom
         # _last_icps = None
@@ -436,8 +544,16 @@ class DicomUtil:
                             f"Default set to {rd.TargetPrescriptionDose} Gy(RBE)")
 
     def save(self, output_file):
-        """Save the modified DICOM file."""
-        """Saves the new dicom file."""
+        """
+        Save the modified DICOM file.
+
+        This method saves the updated DICOM plan to the specified output file and logs
+        important information such as the cumulative weight, patient details, and any spots
+        discarded due to falling below the minimum monitor unit (MU) threshold.
+
+        Args:
+            output_file (str): The path where the modified DICOM file will be saved.
+        """
         if not output_file:
             output_file = DEFAULT_SAVE_FILENAME
         d = self.dicom
@@ -461,7 +577,13 @@ class DicomUtil:
                 + f" spots ({_pstr} %) which were below {MU_MIN:.2f} [MU] ***")
 
     def inspect(self):
-        """Inspect the DICOM file."""
+        """
+        Inspect and log key attributes of the DICOM file.
+
+        This method provides a detailed inspection of the DICOM plan, including patient details,
+        plan metadata, field information, gantry angles, snout positions, and energy layer parameters.
+        It logs all relevant information to help with verification and debugging.
+        """
         d = self.dicom
         logger.info(f"Patient name             : '{d.PatientName}'")
         logger.info(f"Approval status          : '{d.ApprovalStatus}'")
@@ -513,8 +635,15 @@ class DicomUtil:
         logger.debug(f"Entire DICOM file:\n\n{d}")
 
     def print_dicom_spot_comparison(self, num_values):
-        """Print num_values randomly chosen spot meterset weights, for old and new DICOM objects for manual checking."""
+        """
+        Compare spot meterset weights between the original and modified DICOM plans.
 
+        This method selects a specified number of random spot meterset weights for each energy layer
+        and prints a comparison between the original and modified weights for manual checking.
+
+        Args:
+            num_values (int): The number of randomly chosen spot weights to compare.
+        """
         logger.info("    ---- Spot weights comparison ----")
         for i, ib in enumerate(self.dicom.IonBeamSequence):
             for j, icp in enumerate(ib.IonControlPointSequence):
@@ -540,7 +669,17 @@ class DicomUtil:
                 self.print_spot_values(original_spot_weights, new_spot_weights, num_values)
 
     def print_spot_values(self, original_weights, modified_weights, num_values):
-        """Print num_values of spot weights, before and after for checking."""
+        """
+        Print a comparison of spot weights before and after modification.
+
+        This method prints the selected number of spot weights from the original and modified
+        DICOM plans for comparison.
+
+        Args:
+            original_weights (list of float): The list of original spot weights.
+            modified_weights (list of float): The list of modified spot weights.
+            num_values (int): The number of spot weights to print for comparison.
+        """
         logger.info("Original | Modified")
         logger.info("---------|---------")
 
