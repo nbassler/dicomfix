@@ -13,6 +13,7 @@ class Config:
         self.intent_curative = parsed_args.intent_curative
         self.inspect = parsed_args.inspect
         self.wizard_tr4 = parsed_args.wizard_tr4
+        self.fix_raystation = parsed_args.fix_raystation
         self.print_spots = parsed_args.print_spots
         self.gantry_angles = self.parse_angles(parsed_args.gantry_angles)
         self.duplicate_fields = parsed_args.duplicate_fields

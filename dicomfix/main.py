@@ -28,11 +28,13 @@ def main(args=None):
         logging.basicConfig()
 
     # Instantiate DicomUtil with the input file
+    logger.debug(f"Reading input file: '{config.inputfile}'")
     dp = DicomUtil(config.inputfile)
 
     # Handle inspect option
     if config.inspect:
         dp.inspect()
+        exit(0)
 
     # Apply all modifications to the plan using the config object
     dp.modify(config)

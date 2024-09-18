@@ -22,6 +22,9 @@ def parse_arguments(args=None):
     parser.add_argument('-tr4', '--wizard_tr4', action='store_true', default=False,
                         help='Prepare plan for TR4: sets approval, gantry, snout, and treatment machine')
 
+    parser.add_argument('-rs', '--fix_raystation', action='store_true', default=False,
+                        help='Make RayStation plans compatible with Varian proton systems')
+
     parser.add_argument('-p', '--print_spots', type=int, default=None,
                         help='Number of random spots to print for comparison')
     parser.add_argument('-g', '--gantry_angles', type=str, default=None,
