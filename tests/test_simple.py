@@ -21,7 +21,7 @@ def test_call_cmd_no_option():
     with pytest.raises(SystemExit) as e:
         dicomfix.main.main([])
     logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
-    assert e.value.code == 2
+    assert e.value.code == 1
 
 
 def test_call_cmd_help():
