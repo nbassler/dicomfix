@@ -72,6 +72,9 @@ class DicomUtil:
     def modify(self, config):
         """Modify the DICOM file based on provided configuration options."""
 
+        if config.fix_raystation:  # must be fixed first
+            self.fix_raystation()
+
         if config.approve:
             self.approve_plan()
 
@@ -110,9 +113,6 @@ class DicomUtil:
 
         if config.wizard_tr4:
             self.set_wizard_tr4()
-
-        if config.fix_raystation:
-            self.fix_raystation()
 
         if config.print_spots:
             self.print_dicom_spot_comparison(config.print_spots)
@@ -512,6 +512,8 @@ class DicomUtil:
         - Set all table positions (vertical, longitudinal, lateral) to 0 for each field
         - Set the target prescription dose to 1.1 Gy(RBE) if it is missing or not set
         """
+        logger.info("Apply RayStation Fix")
+
         d = self.dicom
         # _last_icps = None
         # for ib in d.IonBeamSequence:
@@ -520,17 +522,46 @@ class DicomUtil:
         #         if icp.ControlPointIndex % 2 == 0:
         #             icp.NominalBeamEnergy = _last_icps.NominalBeamEnergy
         #         _last_icp = icp
-        d.Manufacturer = "RaySearch Laboratories"
-
+        d.Manufacturer = "Varian Medical System Particle Therapy"
+        if not hasattr(d, "IonToleranceTableSequence"):
+            d.IonToleranceTableSequence = [pydicom.Dataset()]
+            
+            d.IonToleranceTableSequence[0].ToleranceTableNumber = 1
+            d.IonToleranceTableSequence[0].ToleranceTableLabel = "T1"
+            d.IonToleranceTableSequence[0].GantryAngleTolerance = 0.5
+            d.IonToleranceTableSequence[0].SnoutPositionTolerance = 5.0
+            d.IonToleranceTableSequence[0].PatientSupportAngleTolerance = 3.0
+            d.IonToleranceTableSequence[0].TableTopPitchAngleTolerance = 3.0
+            d.IonToleranceTableSequence[0].TableTopRollAngleTolerance = 3.0
+            d.IonToleranceTableSequence[0].TableTopVerticalPositionTolerance = 20.0
+            d.IonToleranceTableSequence[0].TableTopLongitudinalPositionTolerance = 20.0
+            d.IonToleranceTableSequence[0].TableTopLateralPositionTolerance = 20.0                                               
         # set table positions to 0 for all fields
         for ib in d.IonBeamSequence:
-            for icp in ib.IonControlPointSequence:
-                icp.TableTopVerticalPosition = 0.0
-                icp.TableTopLongitudinalPosition = 0.0
-                icp.TableTopLateralPosition = 0.0
-                logger.debug(f"TableTopVerticalPosition {icp.TableTopVerticalPosition}")
-                logger.debug(f"TableTopLongitudinalPosition {icp.TableTopLongitudinalPosition}")
-                logger.debug(f"TableTopLateralPosition {icp.TableTopLateralPosition}")
+            ib.Manufacturer = "Varian Medical System Particle Therapy"
+            ib.PatientSupportAccessoryCode = "AC123"
+            ib.IonControlPointSequence[0].TableTopVerticalPosition = 0.0
+            ib.IonControlPointSequence[0].TableTopLongitudinalPosition = 0.0
+            ib.IonControlPointSequence[0].TableTopLateralPosition = 0.0
+            ib.IonControlPointSequence[0].MetersetRate = 100
+            ib.ReferencedToleranceTableNumber = 1    
+            cum = 0.0        
+            for i, icp in enumerate(ib.IonControlPointSequence):
+                if not hasattr(icp, "ReferencedDoseReferenceSequence"):
+                    icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
+                cum += sum(icp.ScanSpotMetersetWeights)
+                icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / ib.FinalCumulativeMetersetWeight            
+            
+        if 'PatientSetupSequence' in d:
+            for ps in d.PatientSetupSequence:                        
+                ps.SetupTechnique = "ISOCENTRIC"
+                # Remove specific delta couch shift tags if they exist
+                if (0x300a, 0x01d2) in ps:
+                    del ps[0x300a, 0x01d2]  # Unset (300a,01d2)
+                if (0x300a, 0x01d4) in ps:
+                    del ps[0x300a, 0x01d4]  # Unset (300a,01d4)    
+                if (0x300a, 0x01d6) in ps:
+                    del ps[0x300a, 0x01d6]  # Unset (300a,01d6)
 
         # Set target prescription dose to 1.1 Gy(RBE) if it is not already set or missing
         if not hasattr(d, "ReferencedDoseSequence"):
@@ -541,6 +572,10 @@ class DicomUtil:
                 rd.TargetPrescriptionDose = 1.1  # Set a default value if missing
                 logger.info(" RayStation: Target prescription dose was missing or not set." +
                             f"Default set to {rd.TargetPrescriptionDose} Gy(RBE)")
+         
+
+
+
 
     def save(self, output_file):
         """
