@@ -507,21 +507,24 @@ class DicomUtil:
         """
         Apply RayStation-specific fixes to the DICOM plan.
 
-        This method performs the following adjustments:
-        - Set the Manufacturer to "RaySearch Laboratories"
-        - Set all table positions (vertical, longitudinal, lateral) to 0 for each field
-        - Set the target prescription dose to 1.1 Gy(RBE) if it is missing or not set
+        This method performs several adjustments to make the DICOM file compatible with RayStation
+        and Varian proton systems, including:
+
+        - Set the Manufacturer to "Varian Medical System Particle Therapy"
+        - Remove unsupported delta couch shift tags (300a,01d2), (300a,01d4), and (300a,01d6)
+        from the PatientSetupSequence.
+        - Ensure the DoseReferenceSequence exists, with a default reference to a "Target".
+        - Add a default IonToleranceTableSequence if missing, with specific tolerance values.
+        - Set table positions (vertical, longitudinal, lateral), pitch, roll, patient support,
+        and snout positions to 0 if they are missing or None.
+        - Set SnoutPosition to 421.0 mm (42.1 cm) and MetersetRate to 100 if missing or None.
+        - Ensure each control point in the IonControlPointSequence contains a reference to
+        the dose reference and calculate the CumulativeDoseReferenceCoefficient.
+        - Set ReferencedToleranceTableNumber to 1 for all beams.
         """
         logger.info("Apply RayStation Fix")
 
         d = self.dicom
-        # _last_icps = None
-        # for ib in d.IonBeamSequence:
-        #     for i, icp in enumerate(ib.IonControlPointSequence):
-        #         # copy energy information to every second control point
-        #         if icp.ControlPointIndex % 2 == 0:
-        #             icp.NominalBeamEnergy = _last_icps.NominalBeamEnergy
-        #         _last_icp = icp
         d.Manufacturer = "Varian Medical System Particle Therapy"
 
         if 'PatientSetupSequence' in d:
