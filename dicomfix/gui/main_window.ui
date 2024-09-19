@@ -225,7 +225,7 @@
                   <item row="5" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_nozzle_position">
                     <property name="maximum">
-                     <double>250.000000000000000</double>
+                     <double>50.000000000000000</double>
                     </property>
                    </widget>
                   </item>

@@ -1,0 +1,13 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore venv or any local virtual environments
+.venv/
+env/
+
+# Ignore other development files
+.git/
+.dockerignore
