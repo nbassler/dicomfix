@@ -37,6 +37,11 @@ def main(args=None):
     else:
         logging.basicConfig()
 
+    if config.inputfile is None:
+        logger.error("No input file provided. Exiting.")
+        logger.error("Use 'dicomfix -h' for help.")
+        exit(1)
+
     # Instantiate DicomUtil with the input file
     logger.debug(f"Reading input file: '{config.inputfile}'")
     dp = DicomUtil(config.inputfile)
