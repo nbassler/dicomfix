@@ -498,10 +498,10 @@ class DicomUtil:
             ibs.TreatmentMachineName = "TR4"
             ibs.IonControlPointSequence[0].GantryAngle = 90.0
             ibs.IonControlPointSequence[0].SnoutPosition = 421.0  # 42.1 cm
-        logger.info(f"All gantry angles set to \
-                        {d.IonBeamSequence[-1].IonControlPointSequence[0].GantryAngle}")
+        logger.info(f"All gantry angles set to   \
+                        {d.IonBeamSequence[-1].IonControlPointSequence[0].GantryAngle:8.2f} deg")
         logger.info(f"All snout positions set to \
-                        {d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition}")
+                        {d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition*0.1:8.2f} cm")
 
     def fix_raystation(self):
         """
@@ -523,9 +523,32 @@ class DicomUtil:
         #             icp.NominalBeamEnergy = _last_icps.NominalBeamEnergy
         #         _last_icp = icp
         d.Manufacturer = "Varian Medical System Particle Therapy"
+
+        if 'PatientSetupSequence' in d:
+            for ps in d.PatientSetupSequence:
+                ps.SetupTechnique = "ISOCENTRIC"
+                # Remove specific delta couch shift tags if they exist
+                if (0x300a, 0x01d2) in ps:
+                    logger.info(" RayStation: Removing (300a,01d2) from PatientSetupSequence")
+                    del ps[0x300a, 0x01d2]  # Unset (300a,01d2)
+                if (0x300a, 0x01d4) in ps:
+                    logger.info(" RayStation: Removing (300a,01d4) from PatientSetupSequence")
+                    del ps[0x300a, 0x01d4]  # Unset (300a,01d4)
+                if (0x300a, 0x01d6) in ps:
+                    logger.info(" RayStation: Removing (300a,01d6) from PatientSetupSequence")
+                    del ps[0x300a, 0x01d6]  # Unset (300a,01d6)
+
+        if not hasattr(d, "DoseReferenceSequence"):
+            logger.info(" RayStation: DoseReferenceSequence was missing. Adding a TARGET as #1.")
+            d.DoseReferenceSequence = [pydicom.Dataset()]
+            d.DoseReferenceSequence[0].DoseReferenceNumber = 1
+            d.DoseReferenceSequence[0].DoseReferenceUID = pydicom.uid.generate_uid()
+            d.DoseReferenceSequence[0].DoseReferenceStructureType = "SITE"
+            d.DoseReferenceSequence[0].DoseReferenceDescription = "Target"
+
         if not hasattr(d, "IonToleranceTableSequence"):
+            logger.info(" RayStation: IonToleranceTableSequence was missing. Adding a T1.")
             d.IonToleranceTableSequence = [pydicom.Dataset()]
-            
             d.IonToleranceTableSequence[0].ToleranceTableNumber = 1
             d.IonToleranceTableSequence[0].ToleranceTableLabel = "T1"
             d.IonToleranceTableSequence[0].GantryAngleTolerance = 0.5
@@ -535,47 +558,52 @@ class DicomUtil:
             d.IonToleranceTableSequence[0].TableTopRollAngleTolerance = 3.0
             d.IonToleranceTableSequence[0].TableTopVerticalPositionTolerance = 20.0
             d.IonToleranceTableSequence[0].TableTopLongitudinalPositionTolerance = 20.0
-            d.IonToleranceTableSequence[0].TableTopLateralPositionTolerance = 20.0                                               
-        # set table positions to 0 for all fields
+            d.IonToleranceTableSequence[0].TableTopLateralPositionTolerance = 20.0
+
+        # Loop over fields
         for ib in d.IonBeamSequence:
             ib.Manufacturer = "Varian Medical System Particle Therapy"
             ib.PatientSupportAccessoryCode = "AC123"
-            ib.IonControlPointSequence[0].TableTopVerticalPosition = 0.0
-            ib.IonControlPointSequence[0].TableTopLongitudinalPosition = 0.0
-            ib.IonControlPointSequence[0].TableTopLateralPosition = 0.0
-            ib.IonControlPointSequence[0].MetersetRate = 100
-            ib.ReferencedToleranceTableNumber = 1    
-            cum = 0.0        
-            for i, icp in enumerate(ib.IonControlPointSequence):
+
+            # TODO, we need a helper function which only sets if attribute is missing
+
+            # Check if table position are missing. Attributes may be there, but set to None
+
+            if ib.IonControlPointSequence[0].TableTopVerticalPosition is None:
+                ib.IonControlPointSequence[0].TableTopVerticalPosition = 0.0
+            if ib.IonControlPointSequence[0].TableTopLongitudinalPosition is None:
+                ib.IonControlPointSequence[0].TableTopLongitudinalPosition = 0.0
+            if ib.IonControlPointSequence[0].TableTopLateralPosition is None:
+                ib.IonControlPointSequence[0].TableTopLateralPosition = 0.0
+            if ib.IonControlPointSequence[0].TableTopPitchAngle is None:
+                ib.IonControlPointSequence[0].TableTopPitchAngle = 0.0
+            if ib.IonControlPointSequence[0].TableTopRollAngle is None:
+                ib.IonControlPointSequence[0].TableTopRollAngle = 0.0
+            if ib.IonControlPointSequence[0].PatientSupportAngle is None:
+                ib.IonControlPointSequence[0].PatientSupportAngle = 0.0
+            if ib.IonControlPointSequence[0].GantryAngle is None:
+                ib.IonControlPointSequence[0].GantryAngle = 0.
+            if ib.IonControlPointSequence[0].SnoutPosition is None:
+                ib.IonControlPointSequence[0].SnoutPosition = 0.0
+
+            if not hasattr(ib.IonControlPointSequence[0], "SnoutPosition"):
+                ib.IonControlPointSequence[0].SnoutPosition = 421.0  # 42.1 cm
+            if not hasattr(ib.IonControlPointSequence[0], "MetersetRate"):
+                ib.IonControlPointSequence[0].MetersetRate = 100
+            else:
+                if ib.IonControlPointSequence[0].MetersetRate is None:
+                    ib.IonControlPointSequence[0].MetersetRate = 100.0
+
+            ib.ReferencedToleranceTableNumber = 1
+
+            cum = 0.0
+            for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
                 cum += sum(icp.ScanSpotMetersetWeights)
-                icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / ib.FinalCumulativeMetersetWeight            
-            
-        if 'PatientSetupSequence' in d:
-            for ps in d.PatientSetupSequence:                        
-                ps.SetupTechnique = "ISOCENTRIC"
-                # Remove specific delta couch shift tags if they exist
-                if (0x300a, 0x01d2) in ps:
-                    del ps[0x300a, 0x01d2]  # Unset (300a,01d2)
-                if (0x300a, 0x01d4) in ps:
-                    del ps[0x300a, 0x01d4]  # Unset (300a,01d4)    
-                if (0x300a, 0x01d6) in ps:
-                    del ps[0x300a, 0x01d6]  # Unset (300a,01d6)
-
-        # Set target prescription dose to 1.1 Gy(RBE) if it is not already set or missing
-        if not hasattr(d, "ReferencedDoseSequence"):
-            logger.info(" RayStation: ReferencedDoseSequence is missing. Adding a default value.")
-            d.ReferencedDoseSequence = [pydicom.Dataset()]
-        for i, rd in enumerate(d.ReferencedDoseSequence):
-            if not hasattr(rd, 'TargetPrescriptionDose') or rd.TargetPrescriptionDose is None:
-                rd.TargetPrescriptionDose = 1.1  # Set a default value if missing
-                logger.info(" RayStation: Target prescription dose was missing or not set." +
-                            f"Default set to {rd.TargetPrescriptionDose} Gy(RBE)")
-         
-
-
-
+                icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / \
+                    ib.FinalCumulativeMetersetWeight
+                icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
 
     def save(self, output_file):
         """
