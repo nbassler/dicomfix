@@ -696,18 +696,18 @@ class DicomUtil:
                     output.append(
                         f"            Table Top Lateral Position       : {icp.TableTopLateralPosition * 0.1:8.2f} cm")
 
-                layer_count = 0
-                for j, icp in enumerate(ib.IonControlPointSequence):
+                    layer_count = 0
+                    for j, icp in enumerate(ib.IonControlPointSequence):
 
-                    if (j + 1) % 2 == 0:
-                        continue
+                        if (j + 1) % 2 == 0:
+                            continue
 
-                    layer_count += 1
-                    output.append(HLINE)
-                    output.append(f"        Energy Layer # {layer_count:02}")
-                    output.append(f"            Nominal Beam Energy              : {icp.NominalBeamEnergy:.2f} MeV")
-                    output.append(f"            Number of Scan Spot Positions    : {icp.NumberOfScanSpotPositions}")
-                    output.append(f"            Cumulative Meterset Weight       : {icp.CumulativeMetersetWeight:.2f}")
+                        layer_count += 1
+                        output.append(HLINE)
+                        output.append(f"        Energy Layer # {layer_count:02}")
+                        output.append(f"            Nominal Beam Energy              : {icp.NominalBeamEnergy:.2f} MeV")
+                        output.append(f"            Number of Scan Spot Positions    : {icp.NumberOfScanSpotPositions}")
+                        output.append(f"            Cumulative Meterset Weight       : {icp.CumulativeMetersetWeight:.2f}")
 
         output.append(HLINE)
         # Return the concatenated output as a string
