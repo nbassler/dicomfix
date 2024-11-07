@@ -12,13 +12,17 @@ RUN pip install --upgrade pip \
     && pip install .
 
 # Install optional dependencies for web UI (Streamlit)
-RUN pip install .[dev]
-RUN pip install .[web]
+RUN pip install .[dev,web]
 
 RUN pytest tests/
 
-# Expose the port that Streamlit will run on
-EXPOSE 8501
-
 # Command to run the Streamlit app
-CMD ["streamlit", "run", "dicomfix/web/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# http
+# Expose the port that Streamlit will run on
+# EXPOSE 8501
+# CMD ["streamlit", "run", "dicomfix/web/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+# https if you have the certificate and key files
+EXPOSE 8443
+CMD ["streamlit", "run", "dicomfix/web/app.py", "--server.port=8443", "--server.address=0.0.0.0", "--server.sslCertFile=${SSL_CERT_FILE}", "--server.sslKeyFile=${SSL_KEY_FILE}"]
+

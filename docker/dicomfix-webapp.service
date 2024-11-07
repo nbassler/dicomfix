@@ -1,0 +1,22 @@
+[Unit]
+Description=DicomFix WebApp Docker Container
+After=network.target
+
+[Service]
+User=dcptclin
+Restart=always
+# ExecStart=/usr/bin/docker run --privileged -p 8501:8501 dicomfix-webapp  # http
+xecStart=/usr/bin/docker run --privileged \
+  -p 8443:8443 \
+  -e SSL_CERT_FILE=/etc/ssl/certs/dicomfix.crt \
+  -e SSL_KEY_FILE=/etc/ssl/private/dicomfix.key \
+  -v /etc/ssl/certs/dicomfix.crt:/etc/ssl/certs/dicomfix.crt:ro \
+  -v /etc/ssl/private/dicomfix.key:/etc/ssl/private/dicomfix.key:ro \
+  dicomfix-webapp:latest
+ExecStop=/usr/bin/docker stop dicomfix-webapp
+ExecStopPost=/usr/bin/docker rm dicomfix-webapp
+TimeoutSec=30
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
