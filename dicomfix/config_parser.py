@@ -30,7 +30,10 @@ def parse_arguments(args=None):
     parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')
     parser.add_argument('-ic', '--intent_curative', action='store_true', default=False,
                         help='Set plan intent to CURATIVE')
-    parser.add_argument('-i', '--inspect', action='store_true', default=False, help='Print contents of DICOM file and exit')
+    parser.add_argument('-i', '--inspect', action='store_true', default=False,
+                        help='Print a summary of the DICOM file and exit')
+    parser.add_argument('-ia', '--inspect_all', action='store_true', default=False,
+                        help='Print all tags in the DICOM file and exit')
     parser.add_argument('-tr4', '--wizard_tr4', action='store_true', default=False,
                         help='Prepare plan for TR4: sets approval, gantry, snout, and treatment machine')
 

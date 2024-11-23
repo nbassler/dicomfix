@@ -52,9 +52,11 @@ class DicomUtil:
         self.old_dicom = copy.deepcopy(self.dicom)
         self.spots_discarded = 0  # count of spots discarded due to low MU
         self.total_number_of_spots = 0
-        for ib in self.dicom.IonBeamSequence:
-            self.total_number_of_spots += sum([icp.NumberOfScanSpotPositions for icp in ib.IonControlPointSequence])
-        self.total_number_of_spots = self.total_number_of_spots // 2  # divide by 2, as each spot has two control points
+
+        if hasattr(self.dicom, "IonBeamSequence"):
+            for ib in self.dicom.IonBeamSequence:
+                self.total_number_of_spots += sum([icp.NumberOfScanSpotPositions for icp in ib.IonControlPointSequence])
+            self.total_number_of_spots = self.total_number_of_spots // 2  # divide by 2, as each spot has two control points
 
     @staticmethod
     def load_dicom(inputfile):
@@ -724,6 +726,12 @@ class DicomUtil:
         output.append(HLINE)
         # Return the concatenated output as a string
         return "\n".join(output)
+
+    def inspect_all(self):
+        """ Print all attributes of the DICOM file to the console. """
+
+        logger.debug("Inspecting all DICOM attributes:")
+        print(self.dicom)
 
     def print_dicom_spot_comparison(self, num_values):
         """
