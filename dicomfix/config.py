@@ -22,6 +22,7 @@ class Config:
         self.date = parsed_args.date
         self.intent_curative = parsed_args.intent_curative
         self.inspect = parsed_args.inspect
+        self.inspect_all = parsed_args.inspect_all
         self.wizard_tr4 = parsed_args.wizard_tr4
         self.fix_raystation = parsed_args.fix_raystation
         self.print_spots = parsed_args.print_spots
