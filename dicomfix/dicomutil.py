@@ -570,6 +570,15 @@ class DicomUtil:
 
             # TODO, we need a helper function which only sets if attribute is missing
 
+            # Loop over snout sequence and set SnoutID to "S1"
+            for ss in ib.SnoutSequence:
+                ss.SnoutID = "S1"
+
+            # remove any range shifter sequence
+            if hasattr(ib, "RangeShifterSequence"):
+                del ib.RangeShifterSequence
+                ib.NumberOfRangeShifters = 0
+
             # Check if table position are missing. Attributes may be there, but set to None
 
             if ib.IonControlPointSequence[0].TableTopVerticalPosition is None:
