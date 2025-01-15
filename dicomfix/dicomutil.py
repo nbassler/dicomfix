@@ -577,6 +577,7 @@ class DicomUtil:
             # remove any range shifter sequence
             if hasattr(ib, "RangeShifterSequence"):
                 del ib.RangeShifterSequence
+                ib.NumberOfRangeShifters = 0
 
             # Check if table position are missing. Attributes may be there, but set to None
 
