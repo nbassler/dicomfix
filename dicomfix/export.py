@@ -186,9 +186,10 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
     p.patient_firstname = ""
     p.plan_label = ds['RTPlanLabel'].value
     p.plan_date = ds['RTPlanDate'].value
+    p.sop_instance_uid = ds['SOPInstanceUID'].value
 
     # protons per (MU/dEdx), Estimated calculation Nov. 2022 from DCPT beam model
-    p.factor = 17247566.1
+    p.factor = 17247566.1  # find better solution for this, this is very approximate
     p.scaling = scaling  # nee note in IBA reader above.
     espread = 0.0  # will be set by beam model
     p.n_fields = int(ds['FractionGroupSequence'][0]['NumberOfBeams'].value)
@@ -200,6 +201,7 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
         myfield = Field()
         logger.debug("Appending field number %d...", i)
         p.fields.append(myfield)
+        myfield.sop_instance_uid = p.sop_instance_uid
         myfield.dose = float(dcm_field['BeamDose'].value)
         myfield.cum_mu = float(dcm_field['BeamMeterset'].value)
         myfield.pld_csetweight = 1.0
@@ -311,6 +313,9 @@ def main(args=None) -> int:
                         dest="nominal",
                         default=False)
     parser.add_argument('-s', '--scale', type=float, dest='scale', help="number of particles*dE/dx per MU", default=1.0)
+    parser.add_argument('-N', '--nstat', type=int, dest='nstat',
+                        help="number of target protons to be simulated (topas only)",
+                        default=1e6)
     parser.add_argument('-c',
                         '--columns',
                         type=int,
@@ -336,12 +341,18 @@ def main(args=None) -> int:
 
     pln = load(parsed_args.fin, bm, parsed_args.scale, parsed_args.flip_xy, parsed_args.flip_x, parsed_args.flip_y)
 
+    if parsed_args.field_nr < 1:
+        logger.error("Loop over fields not implemented yet.")
+        # TODO: loop over alle fields in the plan
+    else:
+        field_idx = parsed_args.field_nr - 1
+
     if parsed_args.diag:
         pln.diagnose()
     else:
         if parsed_args.topas:
             from dicomfix.export_topas import Topas
-            Topas.export(parsed_args.fout, pln.fields[parsed_args.field_nr], bm, parsed_args.nominal)
+            Topas.export(parsed_args.fout, pln.fields[field_idx], bm, parsed_args.nominal, nstat=parsed_args.nstat)
         else:
             pln.export(parsed_args.fout, parsed_args.cols, parsed_args.field_nr, parsed_args.nominal)
 

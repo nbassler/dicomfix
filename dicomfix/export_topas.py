@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 class Topas:
     @staticmethod
-    def export(fn: Path, myfield: Field, bm: BeamModel, nominal: bool, sad_x=2000.0, sad_y=2560.0, beam_model_position=500.0):
+    def export(fn: Path, myfield: Field, bm: BeamModel, nominal: bool,
+               nstat=100000,
+               sad_x=2000.0, sad_y=2560.0, beam_model_position=500.0):
         """
         Export the field to a topas input file.
         """
@@ -45,6 +47,7 @@ class Topas:
         # loop over all spots in all layers in all fields:
         # and fill the arrays
         _spot_index = 0
+        _nlayer = 0
         for layer in myfield.layers:
             if nominal:
                 energy = layer.energy_nominal
@@ -57,7 +60,6 @@ class Topas:
                 energies[_spot_index] = energy
                 espreads[_spot_index] = espread
                 posx[_spot_index] = spot[0]
-                # beam angle = arctan(spot[0] / (sad_x - beam_model_position)) in degrees
                 angx[_spot_index] = np.arctan(spot[0] / (sad_x - beam_model_position)) * 180.0 / np.pi
                 posy[_spot_index] = spot[1]
                 angy[_spot_index] = np.arctan(spot[1] / (sad_y - beam_model_position)) * 180.0 / np.pi
@@ -69,10 +71,20 @@ class Topas:
                 cory[_spot_index] = bm.f_covy(layer.energy_nominal)
                 weights[_spot_index] = spot[3]
                 _spot_index += 1
+            _nlayer += 1
+
+        total_number_of_particles = weights.sum()
+        nstat_scale = (nstat / total_number_of_particles) * myfield.scaling
+        logger.info(f"Proton budget for this plan: {total_number_of_particles:.3e} protons")
+        logger.info(f"Requested number of simulated particles: {nstat:.3e}")
+        logger.info(f"Scaling factor: {1 / nstat_scale:.4e}")
+        logger.info(f"Number of spots: {n_spots}")
+        logger.info(f"Number of energy layers: {_nlayer}")
+
 
         # open output file for writing
         with open(fn, "w") as f:
-            f.write(f"#PARTICLE_SCALING = {1 / myfield.scaling:.0f}\n")
+            f.write(f"#PARTICLE_SCALING = {1 / nstat_scale:.0f}\n")
             f.write(f"#SOPInstanceUID = {myfield.sop_instance_uid}\n")
             f.write(_topas_variables())
             f.write(_topas_setup())
@@ -80,13 +92,15 @@ class Topas:
             f.write(_topas_geometry())
             f.write(_topas_beam())
 
-            f.write("##############################################")
-            f.write("###  T  I  M  E    F  E  A  T  U  R  E  S  ###")
-            f.write("##############################################")
+            f.write("##############################################\n")
+            f.write("###  T  I  M  E    F  E  A  T  U  R  E  S  ###\n")
+            f.write("##############################################\n")
+            f.write("\n")
 
             f.write(f"i:Tf/NumberOfSequentialTimes         = {n_spots}\n")
             f.write(f"d:Tf/TimelineStart                   = {1} s\n")
             f.write(f"d:Tf/TimelineEnd                     = {n_spots+1} s\n")
+            f.write("\n")
 
             f.write(_topas_array(times, energies, "Energy", "f", 3, "MeV"))
             f.write(_topas_array(times, espreads, "EnergySpread", "f", 5))
@@ -103,8 +117,8 @@ class Topas:
             f.write(_topas_array(times, weights, "spotWeight", "f", 0, ""))
 
 
-            f.write(f"#Total number of particles: {weights.sum():.0f}\n")
-            f.write(f"#Total number of particles scaled down by {1 / myfield.scaling:.0f}\n")
+            f.write(f"#Total number of particles: {total_number_of_particles:.0f}\n")
+            f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")
             f.write(f"#Total MU in field: {myfield.cum_mu:.2f}\n")
 
             # print("s:Tf/Energy/Function                 = \"Step\"")
@@ -131,7 +145,6 @@ def _topas_variables() -> str:
         "##############################################",
         "###           V A R I A B L E S            ###",
         "##############################################",
-        "# includeFile                          = /TopasDCPT/material_assignment/SPRtoMaterial__Brain.txt",
         "",
         "d:Rt/Plan/IsoCenterX                 = 0.00 mm",
         "d:Rt/Plan/IsoCenterY                 = 0.00 mm",
@@ -142,6 +155,7 @@ def _topas_variables() -> str:
         "dc:Ge/Patient/DicomOriginX           = 0.00 mm",
         "dc:Ge/Patient/DicomOriginY           = 0.00 mm",
         "dc:Ge/Patient/DicomOriginZ           = 0.00 mm",
+        "\n"
     ]
     return "\n".join(lines)
 
@@ -156,7 +170,8 @@ def _topas_setup() -> str:
         "i:Ts/ShowHistoryCountAtInterval         = 100000",
         "i:Ts/NumberOfThreads                    = 0 # 0 for using all cores, -1 for all but one",
         "b:Ts/DumpParameters                     = \"False\"",
-        "b:Ge/Patient/IgnoreInconsistentFrameOfReferenceUID = \"True\""
+        "b:Ge/Patient/IgnoreInconsistentFrameOfReferenceUID = \"True\"",
+        "\n"
     ]
     return "\n".join(lines)
 
@@ -170,7 +185,8 @@ def _topas_world_setup() -> str:
         "d:Ge/World/HLX             = 90. cm",
         "d:Ge/World/HLY             = 90. cm",
         "d:Ge/World/HLZ             = 90. cm",
-        'b:Ge/World/Invisible       = "True"'
+        'b:Ge/World/Invisible       = "True"',
+        "\n"
     ]
     return "\n".join(lines)
 
@@ -214,7 +230,8 @@ def _topas_geometry() -> str:
         "d:Ge/BeamPosition/TransY             = -1.0 * Tf/spotPositionY/Value mm",
         "d:Ge/BeamPosition/RotX               = -1.0 * Tf/spotAngleY/Value deg",
         "d:Ge/BeamPosition/RotY               = -1.0 * Tf/spotAngleX/Value deg",
-        "d:Ge/BeamPosition/RotZ               = 0.00 deg"
+        "d:Ge/BeamPosition/RotZ               = 0.00 deg",
+        "\n"
     ]
     return "\n".join(lines)
 
@@ -236,6 +253,7 @@ def _topas_beam() -> str:
         "u:So/Field/CorrelationX              = Tf/CorrelationX/Value",
         "u:So/Field/CorrelationY              = Tf/CorrelationY/Value",
         "",
-        "i:So/Field/NumberOfHistoriesInRun    = Tf/spotWeight/Value"
+        "i:So/Field/NumberOfHistoriesInRun    = Tf/spotWeight/Value",
+        "\n"
     ]
     return "\n".join(lines)
