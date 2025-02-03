@@ -17,6 +17,7 @@ dependencies = [
     "pylibjpeg-libjpeg",  # Support for JPEG compression
     "pylibjpeg-openjpeg", # Support for JPEG 2000 compression
     "pillow",             # Support for other image formats
+    "scipy",              # for interpolation
 ]
 dynamic = ["version"]
 
