@@ -61,8 +61,8 @@ class BeamModel():
             self.f_e = interp1d(energy, data[:, 1], kind=k)  # measured energy [MeV]
             self.f_espread = interp1d(energy, data[:, 2], kind=k)  # energy spread 1 sigma [% of measured energy]
             self.f_ppmu = interp1d(energy, data[:, 3], kind=k)  # 1e6 protons per MU  [1e6/MU]
-            self.f_sx = interp1d(energy, data[:, 4], kind=k)  # 1 sigma x [cm]
-            self.f_sy = interp1d(energy, data[:, 5], kind=k)  # 1 sigma y [cm]
+            self.f_sx = interp1d(energy, data[:, 4], kind=k)  # 1 sigma x [mm]
+            self.f_sy = interp1d(energy, data[:, 5], kind=k)  # 1 sigma y [mm]
         else:
             logger.error("invalid column count")
 

@@ -63,8 +63,8 @@ class Topas:
                 angx[_spot_index] = np.arctan(spot[0] / (sad_x - beam_model_position)) * 180.0 / np.pi
                 posy[_spot_index] = spot[1]
                 angy[_spot_index] = np.arctan(spot[1] / (sad_y - beam_model_position)) * 180.0 / np.pi
-                sigx[_spot_index] = layer.spotsize[0]
-                sigy[_spot_index] = layer.spotsize[1]
+                sigx[_spot_index] = bm.f_sx(layer.energy_nominal)
+                sigy[_spot_index] = bm.f_sy(layer.energy_nominal)
                 sigxp[_spot_index] = bm.f_divx(layer.energy_nominal)
                 sigyp[_spot_index] = bm.f_divy(layer.energy_nominal)
                 corx[_spot_index] = bm.f_covx(layer.energy_nominal)
@@ -103,18 +103,18 @@ class Topas:
             f.write("\n")
 
             f.write(_topas_array(times, energies, "Energy", "f", 3, "MeV"))
-            f.write(_topas_array(times, espreads, "EnergySpread", "f", 5))
-            f.write(_topas_array(times, posx*10.0, "spotPositionX", "f", 2, "mm"))
+            f.write(_topas_array(times, espreads, "EnergySpread", "f", 5, ""))
+            f.write(_topas_array(times, posx, "spotPositionX", "f", 2, "mm"))
             f.write(_topas_array(times, angx, "spotAngleX", "f", 3, "deg"))
-            f.write(_topas_array(times, posy*10.0, "spotPositionY", "f", 2, "mm"))
+            f.write(_topas_array(times, posy, "spotPositionY", "f", 2, "mm"))
             f.write(_topas_array(times, angy, "spotAngleY", "f", 3, "deg"))
-            f.write(_topas_array(times, sigx*10.0, "SigmaX", "f", 5, "mm"))
-            f.write(_topas_array(times, sigy*10.0, "SigmaY", "f", 5, "mm"))
+            f.write(_topas_array(times, sigx, "SigmaX", "f", 5, "mm"))
+            f.write(_topas_array(times, sigy, "SigmaY", "f", 5, "mm"))
             f.write(_topas_array(times, sigxp, "SigmaXprime", "f", 5, ""))
             f.write(_topas_array(times, sigyp, "SigmaYprime", "f", 5, ""))
-            f.write(_topas_array(times, corx*10.0, "CorrelationX", "f", 5, "mm"))
-            f.write(_topas_array(times, cory*10.0, "CorrelationY", "f", 5, "mm"))
-            f.write(_topas_array(times, weights, "spotWeight", "f", 0, ""))
+            f.write(_topas_array(times, corx, "CorrelationX", "f", 5, ""))
+            f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
+            f.write(_topas_array(times, weights * nstat_scale, "spotWeight", "f", 0, ""))
 
 
             f.write(f"#Total number of particles: {total_number_of_particles:.0f}\n")
@@ -132,10 +132,15 @@ def _topas_array(time_arr: np.array, arr: np.array, name: str, fmt: str = "f", p
     s = ""
     n_spots = arr.size
     s += f"s:Tf/{name}/Function                 = \"Step\"\n"
+    if unit=="":
+        _pre = "uv"
+    else:
+        _pre = "dv"
+
     _ft = " ".join(map(str, time_arr.astype(int)))
     _fa = " ".join(f"{x:.{precision}{fmt}}" for x in arr)
     s += f"dv:Tf/{name}/Times                   = {n_spots} {_ft} s\n"
-    s += f"dv:Tf/{name}/Values                   = {arr.size} {_fa} {unit}\n"
+    s += f"{_pre}:Tf/{name}/Values                   = {arr.size} {_fa} {unit}\n"
     s += "\n\n"
     return s
 
