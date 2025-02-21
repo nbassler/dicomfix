@@ -1,6 +1,9 @@
 import numpy as np
 from pathlib import Path
 import logging
+import datetime
+import os
+from dicomfix.__version__ import __version__
 
 from dicomfix.export import Field, BeamModel
 
@@ -22,7 +25,6 @@ class Topas:
         # calculate total number of sports
         n_spots = 0
         # loop over all spots in all layers in all fields:
-
 
         for layer in myfield.layers:
             for spot in layer.spots:
@@ -81,7 +83,6 @@ class Topas:
         logger.info(f"Number of spots: {n_spots}")
         logger.info(f"Number of energy layers: {_nlayer}")
 
-
         # open output file for writing
         with open(fn, "w") as f:
             f.write(f"#PARTICLE_SCALING = {1 / nstat_scale:.0f}\n")
@@ -116,10 +117,11 @@ class Topas:
             f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
             f.write(_topas_array(times, weights * nstat_scale, "spotWeight", "f", 0, ""))
 
-
             f.write(f"#Total number of particles: {total_number_of_particles:.0f}\n")
             f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")
             f.write(f"#Total MU in field: {myfield.cum_mu:.2f}\n")
+
+            f.write(_topas_footer())
 
             # print("s:Tf/Energy/Function                 = \"Step\"")
         # _fm = " ".join(map(str, times.astype(int)))
@@ -132,7 +134,7 @@ def _topas_array(time_arr: np.array, arr: np.array, name: str, fmt: str = "f", p
     s = ""
     n_spots = arr.size
     s += f"s:Tf/{name}/Function                 = \"Step\"\n"
-    if unit=="":
+    if unit == "":
         _pre = "uv"
     else:
         _pre = "dv"
@@ -164,6 +166,7 @@ def _topas_variables() -> str:
     ]
     return "\n".join(lines)
 
+
 def _topas_setup() -> str:
     lines = [
         "##############################################",
@@ -179,6 +182,7 @@ def _topas_setup() -> str:
         "\n"
     ]
     return "\n".join(lines)
+
 
 def _topas_world_setup() -> str:
     lines = [
@@ -240,6 +244,7 @@ def _topas_geometry() -> str:
     ]
     return "\n".join(lines)
 
+
 def _topas_beam() -> str:
     lines = [
         "##############################################",
@@ -261,4 +266,16 @@ def _topas_beam() -> str:
         "i:So/Field/NumberOfHistoriesInRun    = Tf/spotWeight/Value",
         "\n"
     ]
+    return "\n".join(lines)
+
+
+def _topas_footer() -> str:
+    "Add a footer to the topas file with generation date and username."
+
+    lines = [
+        "\n",
+        f"# Generated {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} by user '{os.getlogin()}'" +
+        f" using dicomfix {__version__}",
+        "# https://github.com/nbassler/dicomfix"]
+
     return "\n".join(lines)

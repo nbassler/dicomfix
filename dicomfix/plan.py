@@ -5,12 +5,11 @@ from typing import Optional
 from math import exp, log
 
 from dicomfix.beam_model import BeamModel, get_fwhm
-from dicomfix.field import Field
+# from dicomfix.field import Field
 
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 
 def dedx_air(energy: float) -> float:
