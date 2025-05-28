@@ -98,9 +98,9 @@ class Config:
         if range_shifter is None:
             return None
         range_shifter = range_shifter.upper()
-        if range_shifter == "RS2":
+        if range_shifter == "RS2" or range_shifter == "RS_2CM":
             return "RS_2CM"
-        elif range_shifter == "RS5":
+        elif range_shifter == "RS5" or range_shifter == "RS_5CM":
             return "RS_5CM"
         elif range_shifter == "NONE":
             return None
