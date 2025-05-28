@@ -38,6 +38,7 @@ class Config:
         self.patient_name = parsed_args.patient_name
         self.reviewer_name = parsed_args.reviewer_name
         self.verbosity = parsed_args.verbosity
+        self.range_shifter = self.parse_range_shifter(parsed_args.range_shifter)
 
     @staticmethod
     def parse_angles(angles):
@@ -83,3 +84,25 @@ class Config:
         if snout_position:
             return float(snout_position) * 10.0  # convert to mm
         return None
+
+    def parse_range_shifter(self, range_shifter):
+        """
+        Parse the range shifter value.
+
+        Args:
+            range_shifter (str): The range shifter value.
+
+        Returns:
+            str: either None, RS_2CM or RS_5CM.
+        """
+        if range_shifter is None:
+            return None
+        range_shifter = range_shifter.upper()
+        if range_shifter == "RS2":
+            return "RS_2CM"
+        elif range_shifter == "RS5":
+            return "RS_5CM"
+        elif range_shifter == "NONE":
+            return None
+        else:
+            raise ValueError(f"Invalid range shifter value: {range_shifter}")

@@ -119,6 +119,9 @@ class DicomUtil:
         if config.print_spots:
             self.print_dicom_spot_comparison(config.print_spots)
 
+        if config.range_shifter:
+            self.set_range_shifter(config.range_shifter)
+
     def approve_plan(self):
         """Set the approval status of the plan to 'APPROVED'."""
         d = self.dicom
@@ -441,6 +444,44 @@ class DicomUtil:
             ibs.IonControlPointSequence[0].SnoutPosition = snout_position
         _sp = d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition
         logger.info(f"Snout position set to {_sp * 0.1: 8.2f}[cm] for all fields.")
+
+    def set_range_shifter(self, range_shifter=None):
+        """
+        Set the range shifter for all fields.
+
+        Args:
+            range_shifter (str): The new range shifter name.
+            Can be None, "RS_2CM" or "RS_5CM".
+
+        """
+        d = self.dicom
+
+        if range_shifter is None:
+            logger.info("Removing Range Shifter Sequence from all fields.")
+            for ibs in d.IonBeamSequence:
+                if hasattr(ibs, "RangeShifterSequence"):
+                    del ibs.RangeShifterSequence
+                    ibs.NumberOfRangeShifters = 0
+            return
+
+        if range_shifter not in ["RS_2CM", "RS_5CM"]:
+            raise ValueError(f"Range shifter must be 'RS_2CM', 'RS_5CM' or None, got '{range_shifter}'.")
+
+        for ibs in d.IonBeamSequence:
+            if not hasattr(ibs, "RangeShifterSequence"):
+                ibs.RangeShifterSequence = [pydicom.Dataset()]
+            ibs.RangeShifterSequence[0].RangeShifterNumber = 1
+            ibs.RangeShifterSequence[0].RangeShifterID = range_shifter
+            ibs.RangeShifterSequence[0].RangeShifterType = "BINARY"
+            if not hasattr(ibs.RangeShifterSequence[0], "RangeShifterName"):
+                ibs.RangeShifterSettingsSequence = [pydicom.Dataset()]
+                rsss = ibs.RangeShifterSettingsSequence[0]
+                rsss.RangeShifterSetting = 'IN'
+                rsss.IsocenterToRangeShifterDistance = 98.0
+                # TODO: define as dict somwhere
+                rsss.RangeShifterWaterEquivalentThickness = 57.0 if range_shifter == "RS_2CM" else 22.8
+                rsss.ReferencedRangeShifterNumber = 1
+        logger.info(f"Range Shifter set to '{range_shifter}' for all fields.")
 
     def set_treatment_machine(self, machine_name):
         """
