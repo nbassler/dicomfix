@@ -68,6 +68,8 @@ def parse_arguments(args=None):
                         help='Set reviewer name')
     parser.add_argument('-rh', '--range_shifter', type=str, default=None,
                         help='Set range shifter (None, RS2 or RS5) are the only valid options')
+    parser.add_argument('-rp', '--repainting', type=int, default=None,
+                        help='Repaint each layer multiple times without changing MU.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')

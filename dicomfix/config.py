@@ -39,6 +39,7 @@ class Config:
         self.reviewer_name = parsed_args.reviewer_name
         self.verbosity = parsed_args.verbosity
         self.range_shifter = self.parse_range_shifter(parsed_args.range_shifter)
+        self.repainting = parsed_args.repainting
 
     @staticmethod
     def parse_angles(angles):

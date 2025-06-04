@@ -122,6 +122,9 @@ class DicomUtil:
         if config.range_shifter:
             self.set_range_shifter(config.range_shifter)
 
+        if config.repainting:
+            self.set_repainting(config.repainting)
+
     def approve_plan(self):
         """Set the approval status of the plan to 'APPROVED'."""
         d = self.dicom
@@ -485,6 +488,55 @@ class DicomUtil:
                 rsss.RangeShifterWaterEquivalentThickness = 57.0 if range_shifter == "RS_2CM" else 22.8
                 rsss.ReferencedRangeShifterNumber = 1
         logger.info(f"Range Shifter set to '{range_shifter}' for all fields.")
+
+    def set_repainting(self, n):
+        """
+        Repeat each spot n times and divide their weights by n (floating point).
+        This avoids the need for numpy and works with standard Python lists.
+        """
+        d = self.dicom
+        for j, ib in enumerate(d.IonBeamSequence):
+            final_original_cumulative_weight = ib.FinalCumulativeMetersetWeight
+            beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
+            meterset_per_weight = beam_meterset / final_original_cumulative_weight
+
+            for i, icp in enumerate(ib.IonControlPointSequence):
+                icp.ScanSpotPositionMap = icp.ScanSpotPositionMap * 5
+
+                # Rescale the weights and extend it by factor n, so cumulative weights stay constant
+                if icp.NumberOfScanSpotPositions == 1:
+                    w = [icp.ScanSpotMetersetWeights]
+                else:
+                    w = icp.ScanSpotMetersetWeights
+                new_weights = []
+
+                # every second control point the weights are always set to 0
+                # so we only rescale the even control point weights,
+                # put the spot positions still must be repeated n times.
+                if i % 2 == 0:
+                    new_weights = [weight / n for weight in w]
+                else:
+                    new_weights = [0.0] * len(w)
+                new_weights *= n  # Repeat the weights n times
+                icp.ScanSpotMetersetWeights = new_weights
+                icp.ScanSpotPositionMap = list(icp.ScanSpotPositionMap) * n
+                icp.NumberOfScanSpotPositions *= n
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has {icp.NumberOfScanSpotPositions} spots.")
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has weights: {len(new_weights)}")
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has len scanspot position map: " +
+                             f"{len(icp.ScanSpotPositionMap)}")
+                # Check for spots below MU_MIN
+                if i % 2 == 0:
+                    _mu = [w * meterset_per_weight for w in new_weights]
+                    if any(mu < MU_MIN for mu in _mu):
+                        logger.warning(f"Some spots in field {ib.BeamName} fell below {MU_MIN} MU after rescaling.")
+                        logger.warning(f"Lowest value found: {min(_mu):.2f} MU")
+                        self.points_discarded += sum(mu < MU_MIN for mu in _mu)
+                        # Set weights below MU_MIN to zero
+                        icp.ScanSpotMetersetWeights = [w if mu >= MU_MIN else 0.0 for w, mu in zip(new_weights, _mu)]
+                    logger.debug(f"Lowest value found: {min(_mu):.2f} MU")
+
+            logger.info(f"Repainting field {ib.BeamName} with {n} times the number of spots.")
 
     def set_treatment_machine(self, machine_name):
         """
