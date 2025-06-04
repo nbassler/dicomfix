@@ -468,14 +468,17 @@ class DicomUtil:
             raise ValueError(f"Range shifter must be 'RS_2CM', 'RS_5CM' or None, got '{range_shifter}'.")
 
         for ibs in d.IonBeamSequence:
+            ibs.NumberOfRangeShifters = 1
             if not hasattr(ibs, "RangeShifterSequence"):
                 ibs.RangeShifterSequence = [pydicom.Dataset()]
             ibs.RangeShifterSequence[0].RangeShifterNumber = 1
             ibs.RangeShifterSequence[0].RangeShifterID = range_shifter
             ibs.RangeShifterSequence[0].RangeShifterType = "BINARY"
-            if not hasattr(ibs.RangeShifterSequence[0], "RangeShifterName"):
-                ibs.RangeShifterSettingsSequence = [pydicom.Dataset()]
-                rsss = ibs.RangeShifterSettingsSequence[0]
+
+            for ics in ibs.IonControlPointSequence:
+                if not hasattr(ics, "RangeShifterSettingsSequence"):
+                    ics.RangeShifterSettingsSequence = [pydicom.Dataset()]
+                rsss = ics.RangeShifterSettingsSequence[0]
                 rsss.RangeShifterSetting = 'IN'
                 rsss.IsocenterToRangeShifterDistance = 98.0
                 # TODO: define as dict somwhere
