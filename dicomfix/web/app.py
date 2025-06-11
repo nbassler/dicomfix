@@ -61,6 +61,10 @@ if st.session_state.dicom_util:
         st.session_state.dicom_util.set_treatment_machine(st.session_state.treatment_machine)
         update_inspect()
 
+    def set_range_shifter():
+        st.session_state.dicom_util.set_range_shifter(st.session_state.range_shifter)
+        update_inspect()
+
     current_machine = st.session_state.dicom_util.dicom.IonBeamSequence[0].TreatmentMachineName
     st.sidebar.selectbox(
         "Select Treatment Machine",
@@ -68,6 +72,16 @@ if st.session_state.dicom_util:
         index=["TR1", "TR2", "TR3", "TR4"].index(st.session_state.get("treatment_machine", current_machine)),
         key="treatment_machine",
         on_change=set_treatment_machine
+    )
+
+    current_range_sifter = st.session_state.dicom_util.dicom.IonBeamSequence[0].RangeShifterID
+    # Selectbox for Range Shifter and callback on selection change
+    st.sidebar.selectbox(
+        "Select Range Shifter",
+        options=["None", "RS_2CM", "RS_5CM"],
+        index=["None", "RS_2CM", "RS_5CM"].index(st.session_state.get("range_shifter", current_range_sifter)),
+        key="range_shifter",
+        on_change=set_range_shifter
     )
 
     # Add a widget for setting table position

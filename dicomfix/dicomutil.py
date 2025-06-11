@@ -52,9 +52,11 @@ class DicomUtil:
         self.old_dicom = copy.deepcopy(self.dicom)
         self.spots_discarded = 0  # count of spots discarded due to low MU
         self.total_number_of_spots = 0
-        for ib in self.dicom.IonBeamSequence:
-            self.total_number_of_spots += sum([icp.NumberOfScanSpotPositions for icp in ib.IonControlPointSequence])
-        self.total_number_of_spots = self.total_number_of_spots // 2  # divide by 2, as each spot has two control points
+
+        if hasattr(self.dicom, "IonBeamSequence"):
+            for ib in self.dicom.IonBeamSequence:
+                self.total_number_of_spots += sum([icp.NumberOfScanSpotPositions for icp in ib.IonControlPointSequence])
+            self.total_number_of_spots = self.total_number_of_spots // 2  # divide by 2, as each spot has two control points
 
     @staticmethod
     def load_dicom(inputfile):
@@ -116,6 +118,12 @@ class DicomUtil:
 
         if config.print_spots:
             self.print_dicom_spot_comparison(config.print_spots)
+
+        if config.range_shifter:
+            self.set_range_shifter(config.range_shifter)
+
+        if config.repainting:
+            self.set_repainting(config.repainting)
 
     def approve_plan(self):
         """Set the approval status of the plan to 'APPROVED'."""
@@ -440,6 +448,96 @@ class DicomUtil:
         _sp = d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition
         logger.info(f"Snout position set to {_sp * 0.1: 8.2f}[cm] for all fields.")
 
+    def set_range_shifter(self, range_shifter=None):
+        """
+        Set the range shifter for all fields.
+
+        Args:
+            range_shifter (str): The new range shifter name.
+            Can be None, "RS_2CM" or "RS_5CM".
+
+        """
+        d = self.dicom
+
+        if range_shifter is None:
+            logger.info("Removing Range Shifter Sequence from all fields.")
+            for ibs in d.IonBeamSequence:
+                if hasattr(ibs, "RangeShifterSequence"):
+                    del ibs.RangeShifterSequence
+                    ibs.NumberOfRangeShifters = 0
+            return
+
+        if range_shifter not in ["RS_2CM", "RS_5CM"]:
+            raise ValueError(f"Range shifter must be 'RS_2CM', 'RS_5CM' or None, got '{range_shifter}'.")
+
+        for ibs in d.IonBeamSequence:
+            ibs.NumberOfRangeShifters = 1
+            if not hasattr(ibs, "RangeShifterSequence"):
+                ibs.RangeShifterSequence = [pydicom.Dataset()]
+            ibs.RangeShifterSequence[0].RangeShifterNumber = 1
+            ibs.RangeShifterSequence[0].RangeShifterID = range_shifter
+            ibs.RangeShifterSequence[0].RangeShifterType = "BINARY"
+
+            for ics in ibs.IonControlPointSequence:
+                if not hasattr(ics, "RangeShifterSettingsSequence"):
+                    ics.RangeShifterSettingsSequence = [pydicom.Dataset()]
+                rsss = ics.RangeShifterSettingsSequence[0]
+                rsss.RangeShifterSetting = 'IN'
+                rsss.IsocenterToRangeShifterDistance = 98.0
+                # TODO: define as dict somwhere
+                rsss.RangeShifterWaterEquivalentThickness = 57.0 if range_shifter == "RS_2CM" else 22.8
+                rsss.ReferencedRangeShifterNumber = 1
+        logger.info(f"Range Shifter set to '{range_shifter}' for all fields.")
+
+    def set_repainting(self, n):
+        """
+        Repeat each spot n times and divide their weights by n (floating point).
+        This avoids the need for numpy and works with standard Python lists.
+        """
+        d = self.dicom
+        for j, ib in enumerate(d.IonBeamSequence):
+            final_original_cumulative_weight = ib.FinalCumulativeMetersetWeight
+            beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
+            meterset_per_weight = beam_meterset / final_original_cumulative_weight
+
+            for i, icp in enumerate(ib.IonControlPointSequence):
+                icp.ScanSpotPositionMap = icp.ScanSpotPositionMap * 5
+
+                # Rescale the weights and extend it by factor n, so cumulative weights stay constant
+                if icp.NumberOfScanSpotPositions == 1:
+                    w = [icp.ScanSpotMetersetWeights]
+                else:
+                    w = icp.ScanSpotMetersetWeights
+                new_weights = []
+
+                # every second control point the weights are always set to 0
+                # so we only rescale the even control point weights,
+                # put the spot positions still must be repeated n times.
+                if i % 2 == 0:
+                    new_weights = [weight / n for weight in w]
+                else:
+                    new_weights = [0.0] * len(w)
+                new_weights *= n  # Repeat the weights n times
+                icp.ScanSpotMetersetWeights = new_weights
+                icp.ScanSpotPositionMap = list(icp.ScanSpotPositionMap) * n
+                icp.NumberOfScanSpotPositions *= n
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has {icp.NumberOfScanSpotPositions} spots.")
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has weights: {len(new_weights)}")
+                logger.debug(f"Control Point {i} in field {ib.BeamName} has len scanspot position map: " +
+                             f"{len(icp.ScanSpotPositionMap)}")
+                # Check for spots below MU_MIN
+                if i % 2 == 0:
+                    _mu = [w * meterset_per_weight for w in new_weights]
+                    if any(mu < MU_MIN for mu in _mu):
+                        logger.warning(f"Some spots in field {ib.BeamName} fell below {MU_MIN} MU after rescaling.")
+                        logger.warning(f"Lowest value found: {min(_mu):.2f} MU")
+                        self.spots_discarded += sum(mu < MU_MIN for mu in _mu)
+                        # Set weights below MU_MIN to zero
+                        icp.ScanSpotMetersetWeights = [w if mu >= MU_MIN else 0.0 for w, mu in zip(new_weights, _mu)]
+                    logger.debug(f"Lowest value found: {min(_mu):.2f} MU")
+
+            logger.info(f"Repainting field {ib.BeamName} with {n} times the number of spots.")
+
     def set_treatment_machine(self, machine_name):
         """
         Set the treatment machine name for all fields.
@@ -724,6 +822,12 @@ class DicomUtil:
         output.append(HLINE)
         # Return the concatenated output as a string
         return "\n".join(output)
+
+    def inspect_all(self):
+        """ Print all attributes of the DICOM file to the console. """
+
+        logger.debug("Inspecting all DICOM attributes:")
+        print(self.dicom)
 
     def print_dicom_spot_comparison(self, num_values):
         """

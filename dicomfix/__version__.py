@@ -1,3 +1,6 @@
-from importlib.metadata import version as get_version
+from importlib.metadata import version, PackageNotFoundError
 
-__version__ = get_version("dicomfix")
+try:
+    __version__ = version("dicomfix")
+except PackageNotFoundError:
+    __version__ = "0.0.0"  # Fallback version if package metadata is unavailable

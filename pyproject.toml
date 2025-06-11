@@ -1,6 +1,10 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "dicomfix"
-version = "0.1.0"
+# version = "0.1.0"  # Version is managed by setuptools_scm
 description = "A brief description of what your project does"
 authors = [
     { name = "Niels Bassler", email = "nbassler@users.noreply.github.com" },
@@ -14,6 +18,7 @@ dependencies = [
     "pylibjpeg-openjpeg", # Support for JPEG 2000 compression
     "pillow",             # Support for other image formats
 ]
+dynamic = ["version"]
 
 [tool.setuptools]
 packages = ["dicomfix"]
@@ -41,5 +46,5 @@ based_on_style = "pep8"
 column_limit = 127
 
 [tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-timestamp"
+version_scheme = "post-release"
+local_scheme = "node-and-date"

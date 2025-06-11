@@ -30,7 +30,10 @@ def parse_arguments(args=None):
     parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')
     parser.add_argument('-ic', '--intent_curative', action='store_true', default=False,
                         help='Set plan intent to CURATIVE')
-    parser.add_argument('-i', '--inspect', action='store_true', default=False, help='Print contents of DICOM file and exit')
+    parser.add_argument('-i', '--inspect', action='store_true', default=False,
+                        help='Print a summary of the DICOM file and exit')
+    parser.add_argument('-ia', '--inspect_all', action='store_true', default=False,
+                        help='Print all tags in the DICOM file and exit')
     parser.add_argument('-tr4', '--wizard_tr4', action='store_true', default=False,
                         help='Prepare plan for TR4: sets approval, gantry, snout, and treatment machine')
 
@@ -63,7 +66,10 @@ def parse_arguments(args=None):
                         help='Set patient name')
     parser.add_argument('-rn', '--reviewer_name', type=str, default=None,
                         help='Set reviewer name')
-
+    parser.add_argument('-rh', '--range_shifter', type=str, default=None,
+                        help='Set range shifter (None, RS2 or RS5) are the only valid options')
+    parser.add_argument('-rp', '--repainting', type=int, default=None,
+                        help='Repaint each layer multiple times without changing MU.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')
