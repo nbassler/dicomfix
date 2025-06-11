@@ -6,7 +6,7 @@ After=network.target
 User=dcptclin
 Restart=always
 # ExecStart=/usr/bin/docker run --privileged -p 8501:8501 dicomfix-webapp  # http
-xecStart=/usr/bin/docker run --privileged \
+ExecStart=/usr/bin/docker run --privileged \
   -p 8443:8443 \
   -e SSL_CERT_FILE=/etc/ssl/certs/dicomfix.crt \
   -e SSL_KEY_FILE=/etc/ssl/private/dicomfix.key \
