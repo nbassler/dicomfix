@@ -531,7 +531,7 @@ class DicomUtil:
                     if any(mu < MU_MIN for mu in _mu):
                         logger.warning(f"Some spots in field {ib.BeamName} fell below {MU_MIN} MU after rescaling.")
                         logger.warning(f"Lowest value found: {min(_mu):.2f} MU")
-                        self.points_discarded += sum(mu < MU_MIN for mu in _mu)
+                        self.spots_discarded += sum(mu < MU_MIN for mu in _mu)
                         # Set weights below MU_MIN to zero
                         icp.ScanSpotMetersetWeights = [w if mu >= MU_MIN else 0.0 for w, mu in zip(new_weights, _mu)]
                     logger.debug(f"Lowest value found: {min(_mu):.2f} MU")
