@@ -12,7 +12,7 @@ import argparse
 
 import numpy as np
 from pathlib import Path
-from typing import Optional
+# from typing import Optional
 
 from dicomfix.beam_model import BeamModel, get_fwhm
 from dicomfix.plan import Plan
@@ -204,6 +204,8 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
         myfield.sop_instance_uid = p.sop_instance_uid
         myfield.dose = float(dcm_field['BeamDose'].value)
         myfield.cum_mu = float(dcm_field['BeamMeterset'].value)
+        myfield.meterset_weight_final = float(ds['IonBeamSequence'][i]['FinalCumulativeMetersetWeight'].value)
+        myfield.meterset_per_weight = myfield.cum_mu / myfield.meterset_weight_final
         myfield.pld_csetweight = 1.0
         myfield.scaling = scaling  # nee note in IBA reader above.
         myfield.n_layers = int(ds['IonBeamSequence'][i]['NumberOfControlPoints'].value)
@@ -225,7 +227,8 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
             if 'ScanSpotPositionMap' in layer:
                 _pos = np.array(layer['ScanSpotPositionMap'].value).reshape(nspots, 2)  # spot coords in mm
             if 'ScanSpotMetersetWeights' in layer:
-                _mu = np.array(layer['ScanSpotMetersetWeights'].value).reshape(nspots, 1)  # spot MUs
+                _mu = np.array(layer['ScanSpotMetersetWeights'].value).reshape(
+                    nspots, 1) * myfield.meterset_per_weight  # spot MUs
                 cmu = _mu.sum()
             if 'ScanningSpotSize' in layer:
                 # Varian dicom holds nominal spot size in 2D, FWHMMx,y in [mm]

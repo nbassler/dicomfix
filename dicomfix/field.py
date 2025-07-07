@@ -18,6 +18,9 @@ class Field:
     xmax: float = 0.0
     ymin: float = 0.0
     ymax: float = 0.0
+    meterset_weight_final: float = 0.0
+    meterset_per_weight: float = 0.0
+
     sop_instance_uid: str = ""  # SOPInstanceUID for this field
 
     def diagnose(self):

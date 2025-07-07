@@ -82,6 +82,7 @@ class Topas:
         logger.info(f"Scaling factor: {1 / nstat_scale:.4e}")
         logger.info(f"Number of spots: {n_spots}")
         logger.info(f"Number of energy layers: {_nlayer}")
+        logger.info(f"BeamMeterset {myfield.meterset_weight_final:.2f} MU")
 
         # open output file for writing
         with open(fn, "w") as f:
@@ -117,7 +118,7 @@ class Topas:
             f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
             f.write(_topas_array(times, weights * nstat_scale, "spotWeight", "f", 0, ""))
 
-            f.write(f"#Total number of particles: {total_number_of_particles:.0f}\n")
+            f.write(f"#Total number of particles: {total_number_of_particles * nstat_scale:.0f}\n")
             f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")
             f.write(f"#Total MU in field: {myfield.cum_mu:.2f}\n")
 
