@@ -18,6 +18,7 @@ from dicomfix.beam_model import BeamModel, get_fwhm
 from dicomfix.plan import Plan
 from dicomfix.field import Field
 from dicomfix.layer import Layer
+from dicomfix.spot import Spot
 
 
 from dicomfix.__version__ import __version__
@@ -63,31 +64,29 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
     file_pld : a file pointer to a .pld file, opened for reading.
     Here we assume there is only a single field in every .pld file.
     """
-    logging.warning("IBA_PLD reader not implemented yet.")
+    logging.warning("IBA_PLD reader not tested yet.")
     eps = 1.0e-10
 
     current_plan = Plan()
-
     myfield = Field()  # avoid collision with dataclasses.field
     current_plan.fields = [myfield]
     current_plan.n_fields = 1
 
-    # TODO: needs beam model to be applied for spot parameters and MU scaling.
-    # For now, we simply assume a constant factor for the number of particles per MU (which is not correct).
-    # p.factor holds the number of particles * dE/dx / MU = some constant
-    # p.factor = 8.106687e7  # Calculated Nov. 2016 from Brita's 32 Gy plan. (no dE/dx)
-    current_plan.factor = 5.1821e8  # protons per (MU/dEdx), Estimated calculation Apr. 2017 from Brita's 32 Gy plan.
+    # # TODO: needs beam model to be applied for spot parameters and MU scaling.
+    # # For now, we simply assume a constant factor for the number of particles per MU (which is not correct).
+    # # p.factor holds the number of particles * dE/dx / MU = some constant
+    # # p.factor = 8.106687e7  # Calculated Nov. 2016 from Brita's 32 Gy plan. (no dE/dx)
+    # current_plan.factor = 5.1821e8  # protons per (MU/dEdx), Estimated calculation Apr. 2017 from Brita's 32 Gy plan.
 
-    # currently scaling is treated equal at plan and field level. This is for future use.
-    current_plan.scaling = scaling
-    myfield.scaling = scaling
+    # # currently scaling is treated equal at plan and field level. This is for future use.
+    # current_plan.scaling = scaling
+    # myfield.scaling = scaling
 
     pldlines = file_pld.read_text().split('\n')
     pldlen = len(pldlines)
     logger.info("Read %d lines of data.", pldlen)
 
     myfield.layers = []
-    myfield.n_layers = 0
 
     # First line in PLD file contains both plan and field data
     tokens = pldlines[0].split(",")
@@ -97,77 +96,80 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
     current_plan.patient_firstname = tokens[4].strip()
     current_plan.plan_label = tokens[5].strip()
     current_plan.beam_name = tokens[6].strip()
-    myfield.cmu = float(tokens[7].strip())  # total amount of MUs in this field
+    myfield.cmu = float(tokens[7].strip())          # total amount of MUs in this field
     myfield.pld_csetweight = float(tokens[8].strip())
-    myfield.n_layers = int(tokens[9].strip())  # number of layers
+    myfield.n_layers = int(tokens[9].strip())       # number of layers
 
     espread = 0.0  # will be set by beam model
 
-    for i in range(1, pldlen):  # loop over all lines starting from the second one
+    i = 1
+    while i < pldlen:
         line = pldlines[i]
-        if "Layer" in line:  # each new layers starts with the "Layer" keyword
-            # the "Layer" header is formated as
-            # "Layer, "
-            header = line
-            tokens = header.split(",")
-            # extract the subsequent lines with elements
-            el_first = i + 1
-            el_last = el_first + int(tokens[4])
+        if "Layer" in line:
+            tokens = line.split(",")
 
-            elements = pldlines[el_first:el_last]  # each line starting with "Element" string is a spot.
-
-            # tokens[0] just holds the "Layer" keyword
-            # IBA PLD holds nominal spot size in 1D, 1 sigma in [mm]
-            spotsize = get_fwhm(float(tokens[1].strip()))   # convert mm sigma to mm FWHM (this is just a float)
+            spotsize_sigma = float(tokens[1].strip())
+            spotsize_fwhm = get_fwhm(spotsize_sigma)  # single value in mm
 
             energy_nominal = float(tokens[2].strip())
             cmu = float(tokens[3].strip())
-            nspots = int(tokens[4].strip())
-            logger.debug(tokens)
+            nspots_expected = int(tokens[4].strip())
 
-            # read number of repaints only if 5th column is present, otherwise set to 0
-            nrepaint = 0  # we suspect repaints = 1 means all dose will be delivered once.
-            if len(tokens) > 5:
-                nrepaint = int(tokens[5].strip())
+            nrepaint = int(tokens[5].strip()) if len(tokens) > 5 else 0
 
-            spots = np.array([])
+            elements = []
+            j = i + 1
+            while j < pldlen and "Element" in pldlines[j]:
+                elements.append(pldlines[j])
+                j += 1
 
-            layer = Layer(spots=spots,
-                          spotsize=np.array([spotsize, spotsize]),
-                          energy_nominal=energy_nominal,
-                          energy_measured=energy_nominal,
-                          espread=espread,
-                          cum_mu=cmu,
-                          n_spots=nspots,
-                          repaint=nrepaint)
+            spots = []
+            for el in elements:
+                el_tokens = el.split(",")
+                _x = float(el_tokens[1].strip())
+                _y = float(el_tokens[2].strip())
+                _mu = float(el_tokens[3].strip())
 
-            for element in elements:  # loop over each spot in this layer
-                token = element.split(",")
-                # the .pld file has every spot position repeated, but MUs are only in
-                # every second line, for reasons unknown.
-                _x = float(token[1].strip())
-                _y = float(token[2].strip())
-                _mu = float(token[3].strip())
-
-                # fix bad float conversions
-                if np.abs(_x) < eps:
+                if abs(_x) < eps:
                     _x = 0.0
-                if np.abs(_y) < eps:
+                if abs(_y) < eps:
                     _y = 0.0
                 if _mu < eps:
                     _mu = 0.0
 
-                # PLD files have the spots listed tiwce, once with no MUs. These are removed here.
+                # Skip empty spots
                 if _mu > 0.0:
-                    layer.spots = np.append([layer.spots], [_x, _y, _mu, _mu])
-                else:
-                    # this was an empty spot, decrement spot count, and do not add it.
-                    nspots -= 1
+                    spots.append(Spot(
+                        x=_x,
+                        y=_y,
+                        mu=_mu,
+                        size_x=spotsize_fwhm,
+                        size_y=spotsize_fwhm
+                    ))
 
-            layer.spots = layer.spots.reshape(nspots, 4)
+            # check if expected number of spots is correct
+            if len(spots) != nspots_expected:
+                logger.warning("Expected %d spots, but found %d in layer %d at energy %.2f MeV",
+                               nspots_expected, len(spots), len(myfield.layers), energy_nominal)
+
+            layer = Layer(
+                spots=spots,
+                energy_nominal=energy_nominal,
+                energy_measured=energy_nominal,
+                espread=espread,
+                cum_mu=cmu,
+                n_spots=len(spots),
+                repaint=nrepaint,
+                mu_to_part_coef=0.0  # to be set by beam model later
+            )
+
             current_plan.fields[0].layers.append(layer)
+            logger.debug("Appended layer %d with %d spots", len(current_plan.fields[0].layers), len(spots))
 
-            logger.debug("appended layer %i with %i spots", len(current_plan.fields[0].layers), layer.n_spots)
+            i = j  # move to next layer or EOF
+        else:
+            i += 1
+
     return current_plan
 
 
@@ -193,8 +195,8 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
     p.sop_instance_uid = ds['SOPInstanceUID'].value
 
     # protons per (MU/dEdx), Estimated calculation Nov. 2022 from DCPT beam model
-    p.factor = 17247566.1  # find better solution for this, this is very approximate
-    p.scaling = scaling  # nee note in IBA reader above.
+    # p.factor = 17247566.1  # find better solution for this, this is very approximate
+    # p.scaling = scaling  # nee note in IBA reader above.
     espread = 0.0  # will be set by beam model
     p.n_fields = int(ds['FractionGroupSequence'][0]['NumberOfBeams'].value)
     logger.debug("Found %i fields", p.n_fields)
@@ -210,15 +212,13 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
         myfield.cum_mu = float(dcm_field['BeamMeterset'].value)
         myfield.meterset_weight_final = float(ds['IonBeamSequence'][i]['FinalCumulativeMetersetWeight'].value)
         myfield.meterset_per_weight = myfield.cum_mu / myfield.meterset_weight_final
-        myfield.pld_csetweight = 1.0
-        myfield.scaling = scaling  # nee note in IBA reader above.
         myfield.n_layers = int(ds['IonBeamSequence'][i]['NumberOfControlPoints'].value)
-        dcm_ibs = ds['IonBeamSequence'][i]['IonControlPointSequence']  # layers for given field number
+        dcm_icps = ds['IonBeamSequence'][i]['IonControlPointSequence']  # layers for given field number
         logger.debug("Found %i layers in field number %i", myfield.n_layers, i)
 
         cmu = 0.0
 
-        for j, layer in enumerate(dcm_ibs):
+        for j, layer in enumerate(dcm_icps):
 
             # gantry and couch angle is stored per energy layer, strangely
             if 'NominalBeamEnergy' in layer:
@@ -228,21 +228,30 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
                 logger.debug("Found %i spots in layer number %i at energy %f", nspots, j, energy)
             if 'NumberOfPaintings' in layer:
                 nrepaint = int(layer['NumberOfPaintings'].value)  # number of spots
-            if 'ScanSpotPositionMap' in layer:
-                _pos = np.array(layer['ScanSpotPositionMap'].value).reshape(nspots, 2)  # spot coords in mm
-            if 'ScanSpotMetersetWeights' in layer:
-                _mu = np.array(layer['ScanSpotMetersetWeights'].value).reshape(
-                    nspots, 1) * myfield.meterset_per_weight  # spot MUs
-                cmu = _mu.sum()
-            if 'ScanningSpotSize' in layer:
-                # Varian dicom holds nominal spot size in 2D, FWHMMx,y in [mm]
-                spotsize = np.array(layer['ScanningSpotSize'].value)
-                spots = np.c_[_pos, _mu]  # spots are now in the form [[x_i, y_i, mu_i], ...]
-                # only append layer, if sum of mu are larger than 0
-                if cmu > 0.0:
-                    myfield.layers.append(Layer(spots, spotsize, energy, energy, espread, cmu, nrepaint, nspots))
-                else:
-                    logger.debug("Skipping empty layer %i", j)
+
+            if not all(tag in layer for tag in ['ScanSpotPositionMap', 'ScanSpotMetersetWeights', 'ScanningSpotSize']):
+                raise ValueError("Layer is missing required DICOM tags for spot extraction.")
+
+            # Extract spot positions [mm]
+            _pos = np.array(layer['ScanSpotPositionMap'].value).reshape(nspots, 2)
+
+            # Extract spot MU and scale [MU]
+            _mu = np.array(layer['ScanSpotMetersetWeights'].value).reshape(nspots) * myfield.meterset_per_weight
+
+            # Extract spot nominal sizes [mm FWHM]
+            size_x, size_y = layer['ScanningSpotSize'].value
+
+            spots = [Spot(x=x, y=y, mu=mu, size_x=size_x, size_y=size_y)
+                     for (x, y), mu in zip(_pos, _mu)]
+
+            # only append layer, if sum of mu are larger than 0
+            sum_mu = np.sum(_mu)
+            if sum_mu > 0.0:
+                cmu += sum_mu
+                # print(sum_mu, cmu)
+                myfield.layers.append(Layer(spots, energy, energy, espread, cmu, nrepaint, nspots, mu_to_part_coef=0.0))
+            else:
+                logger.debug("Skipping empty layer %i", j)
     return p
 
 

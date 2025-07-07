@@ -36,10 +36,7 @@ class Plan:
 
     One plan may consist of one or more fields.
     One field may contain one of more layers.
-
-    Beam model is optional, but needed for exact modeling of the beam.
-    If no beam model is given, MUs are translated to particle numbers using approximate stopping power for air (dEdx)
-    and empirical scaling factors.
+    One layer may contain one or more spots.
     """
 
     fields: list = field(default_factory=list)  # https://stackoverflow.com/questions/53632152/
@@ -97,18 +94,20 @@ class Plan:
 
             # set layer specific values
             for layer in myfield.layers:
-                layer.n_spots = len(layer.spots)
-                layer.xmin = layer.spots[:, 0].min()
-                layer.xmax = layer.spots[:, 0].max()
-                layer.ymin = layer.spots[:, 1].min()
-                layer.ymax = layer.spots[:, 1].max()
-                layer.cum_mu = layer.spots[:, 2].sum()
-                if layer.cum_mu > 0.0:
+                logger.debug("Processing layer with %d spots", layer.n_spots)
+                if layer.n_spots > 0:
+                    x_list = [spot.x for spot in layer.spots]
+                    y_list = [spot.y for spot in layer.spots]
+                    mu_list = [spot.mu for spot in layer.spots]
+                    layer.xmin = min(x_list)
+                    layer.xmax = max(x_list)
+                    layer.ymin = min(y_list)
+                    layer.ymax = max(y_list)
+                    layer.cum_mu = sum(mu_list)
                     layer.is_empty = False
-                layer.cum_particles = layer.spots[:, 2].sum() * layer.mu_to_part_coef
 
-                myfield.cum_particles += layer.cum_particles
-                myfield.cum_mu += layer.cum_mu
+                    myfield.cum_particles += layer.cum_particles
+                    myfield.cum_mu += layer.cum_mu
 
                 if layer.xmin < myfield.xmin:
                     myfield.xmin = layer.xmin
@@ -194,32 +193,32 @@ class Plan:
 
                 for spot in layer.spots:
                     if self.flip_x:
-                        spot[0] *= -1
+                        spot.x *= -1
 
                     if self.flip_y:
-                        spot[1] *= -1
+                        spot.y *= -1
 
                     if self.flip_xy:
-                        xpos = spot[1] * 0.1  # mm -> cm
-                        ypos = spot[0] * 0.1  # mm -> cm
+                        xpos = spot.y * 0.1  # mm -> cm
+                        ypos = spot.x * 0.1  # mm -> cm
                     else:
-                        xpos = spot[0] * 0.1  # mm -> cm
-                        ypos = spot[1] * 0.1  # mm -> cm
+                        xpos = spot.x * 0.1  # mm -> cm
+                        ypos = spot.y * 0.1  # mm -> cm
 
                     wt = spot[3]
                     # format output file. Carefully tuned so they appear in nice columns synced to header. Maybe.
                     if cols == 7:
-                        s = f"{energy:8.6f}     {espread:10.8f}  " \
-                            + f"{xpos:6.2f}   {ypos:6.2f}  " \
-                            + f"{fwhmx:6.2f}   {fwhmy:6.2f}     {wt:10.4e}\n"
+                        s = f"{energy:8.6f}     {espread:10.8f}  "
+                        + f"{xpos:6.2f}   {ypos:6.2f}  "
+                        + f"{fwhmx:6.2f}   {fwhmy:6.2f}     {wt:10.4e}\n"
                     elif cols == 6:
-                        s = f"{energy:8.6f}     " \
-                            + f"{xpos:6.2f}   {ypos:6.2f}  " \
-                            + f"{fwhmx:6.2f}   {fwhmy:6.2f}     {wt:10.4e}\n"
+                        s = f"{energy:8.6f}     "
+                        + f"{xpos:6.2f}   {ypos:6.2f}  "
+                        + f"{fwhmx:6.2f}   {fwhmy:6.2f}     {wt:10.4e}\n"
                     else:
-                        s = f"{energy:8.6f}     " \
-                            + f"{xpos:6.2f}   {ypos:6.2f}  " \
-                            + f"{fwhmx:6.2f}   {wt:10.4e}\n"
+                        s = f"{energy:8.6f}     "
+                        + f"{xpos:6.2f}   {ypos:6.2f}  "
+                        + f"{fwhmx:6.2f}   {wt:10.4e}\n"
                     output += s
             logger.debug("Export field %d %s, %g MeV", j, fout, myfield.layers[0].energy_nominal)
             fout.write_text(output)  # still in field loop, output for every field

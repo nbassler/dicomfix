@@ -61,17 +61,17 @@ class Topas:
                 times[_spot_index] = _spot_index + 1
                 energies[_spot_index] = energy
                 espreads[_spot_index] = espread
-                posx[_spot_index] = spot[0]
-                angx[_spot_index] = np.arctan(spot[0] / (sad_x - beam_model_position)) * 180.0 / np.pi
-                posy[_spot_index] = spot[1]
-                angy[_spot_index] = np.arctan(spot[1] / (sad_y - beam_model_position)) * 180.0 / np.pi
+                posx[_spot_index] = spot.x
+                angx[_spot_index] = np.arctan(spot.x / (sad_x - beam_model_position)) * 180.0 / np.pi
+                posy[_spot_index] = spot.y
+                angy[_spot_index] = np.arctan(spot.y / (sad_y - beam_model_position)) * 180.0 / np.pi
                 sigx[_spot_index] = bm.f_sx(layer.energy_nominal)
                 sigy[_spot_index] = bm.f_sy(layer.energy_nominal)
                 sigxp[_spot_index] = bm.f_divx(layer.energy_nominal)
                 sigyp[_spot_index] = bm.f_divy(layer.energy_nominal)
                 corx[_spot_index] = bm.f_covx(layer.energy_nominal)
                 cory[_spot_index] = bm.f_covy(layer.energy_nominal)
-                nparts[_spot_index] = spot[2] * layer.mu_to_part_coef  # convert MU to number of particles
+                nparts[_spot_index] = spot.mu * layer.mu_to_part_coef  # convert MU to number of particles
                 _spot_index += 1
             _nlayer += 1
 
@@ -118,6 +118,11 @@ class Topas:
             f.write(_topas_array(times, corx, "CorrelationX", "f", 5, ""))
             f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
             f.write(_topas_array(times, nparts * nstat_scale, "spotWeight", "f", 0, ""))
+
+            # debug, get the sum of the spotweight table:
+            print(nparts.sum() * nstat_scale, nparts.sum(), len(nparts))
+
+            print(f"Total number of particles: {total_number_of_particles * nstat_scale:.0f}")
 
             f.write(f"#Total number of particles: {total_number_of_particles * nstat_scale:.0f}\n")
             f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")

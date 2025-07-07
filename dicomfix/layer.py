@@ -1,5 +1,7 @@
-import numpy as np
+from typing import List
+# import numpy as np
 from dataclasses import dataclass, field
+from dicomfix.spot import Spot
 
 
 @dataclass
@@ -7,20 +9,21 @@ class Layer:
     """
     Handle layers in a plan.
 
-    spots : np.array([[x_i, y_i, mu_i, n], [...], ...) for i spots.
-            x,y : are spot positions at isocenter in [mm].
-            mu  : are monitor units (meterset) for the individual spots [MU] (not relative meterset weights).
-    spotsize: np.array() FWHM width of spot in along x and y axis, respectively [mm]
-    enorm : nominal energy in [MeV]
-    emeas : measured energy in [MeV] at exit nozzle
-    cum_mu : cumulative monitor units for this layers [MU]
-    repaint : number of repainting, 0 for no repaints TODO: check what is convention here.
-    n_spots : number of spots in total
-    mu_to_part_coef : conversion coefficient from MU to number of particles (depends on energy)
+    Attributes:
+        spots: List of Spot objects representing scanned spots in this layer.
+        energy_nominal: Nominal beam energy [MeV].
+        energy_measured: Measured energy at nozzle [MeV].
+        espread: Energy spread [MeV].
+        cum_mu: Cumulative monitor units in this layer [MU].
+        cum_particles: Cumulative number of particles in this layer.
+        repaint: Number of repaintings (0 = no repainting).
+        n_spots: Number of spots in this layer.
+        mu_to_part_coef: Conversion coefficient from MU to number of particles.
+        xmin/xmax/ymin/ymax: Spatial extent of spots in this layer [mm].
+        is_empty: Whether the layer has non-zero MU.
     """
 
-    spots: np.array = field(default_factory=np.array)
-    spotsize: np.array = field(default_factory=np.array)
+    spots: List[Spot] = field(default_factory=list)
     energy_nominal: float = 100.0
     energy_measured: float = 100.0
     espread: float = 0.0
@@ -31,6 +34,10 @@ class Layer:
     ymin: float = 0.0
     ymax: float = 0.0
     repaint: int = 0
-    n_spots: int = 1
-    mu_to_part_coef: float = 1.0
+    mu_to_part_coef: float = 0.0
     is_empty: bool = True  # marker if there are no MUs in this layer
+
+    @property
+    def n_spots(self) -> int:
+        """Number of spots in this layer."""
+        return len(self.spots)
