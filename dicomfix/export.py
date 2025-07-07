@@ -63,6 +63,7 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
     file_pld : a file pointer to a .pld file, opened for reading.
     Here we assume there is only a single field in every .pld file.
     """
+    logging.warning("IBA_PLD reader not implemented yet.")
     eps = 1.0e-10
 
     current_plan = Plan()
@@ -71,6 +72,8 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
     current_plan.fields = [myfield]
     current_plan.n_fields = 1
 
+    # TODO: needs beam model to be applied for spot parameters and MU scaling.
+    # For now, we simply assume a constant factor for the number of particles per MU (which is not correct).
     # p.factor holds the number of particles * dE/dx / MU = some constant
     # p.factor = 8.106687e7  # Calculated Nov. 2016 from Brita's 32 Gy plan. (no dE/dx)
     current_plan.factor = 5.1821e8  # protons per (MU/dEdx), Estimated calculation Apr. 2017 from Brita's 32 Gy plan.
@@ -170,6 +173,7 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
 
 def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
     """Load varian type dicom plans."""
+    logging.warning("DICOM reader not implemented yet.")
     p = Plan()
     try:
         import pydicom as dicom
@@ -233,7 +237,7 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
             if 'ScanningSpotSize' in layer:
                 # Varian dicom holds nominal spot size in 2D, FWHMMx,y in [mm]
                 spotsize = np.array(layer['ScanningSpotSize'].value)
-                spots = np.c_[_pos, _mu, _mu]  # weight will be calculated later when beam model is applied
+                spots = np.c_[_pos, _mu]  # spots are now in the form [[x_i, y_i, mu_i], ...]
                 # only append layer, if sum of mu are larger than 0
                 if cmu > 0.0:
                     myfield.layers.append(Layer(spots, spotsize, energy, energy, espread, cmu, nrepaint, nspots))

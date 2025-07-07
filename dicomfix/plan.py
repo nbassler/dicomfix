@@ -71,20 +71,20 @@ class Plan:
                     layer.mu_to_part_coef = self.beam_model.f_ppmu(layer.energy_nominal)
                     layer.energy_measured = self.beam_model.f_e(layer.energy_nominal)
                     layer.espread = self.beam_model.f_espread(layer.energy_nominal)
-                    layer.spots[:, 3] = layer.spots[:, 2] * layer.mu_to_part_coef * myfield.scaling
                     layer.spotsize = np.array(
                         [self.beam_model.f_sx(layer.energy_nominal),
                          self.beam_model.f_sy(layer.energy_nominal)]) * get_fwhm(1.0)
-        else:
-            for myfield in self.fields:
-                for layer in myfield.layers:
-                    # if there is no beam model available, we will simply use air stopping power
-                    # since MU is proportional to dose in monitor chamber, which means fluence ~ D_air / dEdx(air)
-                    layer.mu_to_part_coef = self.factor / dedx_air(layer.energy_measured)
-                    layer.spots[:, 3] = layer.spots[:, 2] * layer.mu_to_part_coef * myfield.scaling
-                    # old IBA code something like:
-                    # weight = mu_to_part_coef * _mu2 * field.cmu / field.pld_csetweight
-                    # phi_weight = weight / dedx_air(layer.energy_measured)
+        # The old fallback code, is just just kept for reference. It must not be used anymore.
+        # It was intended as a fallback in case no beam model was available.
+        # else:  # in the case no beam model is available, we will estimate the number of particles
+        #     for myfield in self.fields:
+        #         for layer in myfield.layers:
+        #             # if there is no beam model available, we will simply use air stopping power
+        #             # since MU is proportional to dose in monitor chamber, which means fluence ~ D_air / dEdx(air)
+        #             layer.mu_to_part_coef = self.factor / dedx_air(layer.energy_measured)
+        #             # old IBA code something like:
+        #             # weight = mu_to_part_coef * _mu2 * field.cmu / field.pld_csetweight
+        #             # phi_weight = weight / dedx_air(layer.energy_measured)
 
         # set cumulative sums
         for myfield in self.fields:
@@ -105,7 +105,7 @@ class Plan:
                 layer.cum_mu = layer.spots[:, 2].sum()
                 if layer.cum_mu > 0.0:
                     layer.is_empty = False
-                layer.cum_particles = layer.spots[:, 3].sum()
+                layer.cum_particles = layer.spots[:, 2].sum() * layer.mu_to_part_coef
 
                 myfield.cum_particles += layer.cum_particles
                 myfield.cum_mu += layer.cum_mu

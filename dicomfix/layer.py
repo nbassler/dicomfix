@@ -9,8 +9,7 @@ class Layer:
 
     spots : np.array([[x_i, y_i, mu_i, n], [...], ...) for i spots.
             x,y : are spot positions at isocenter in [mm].
-            mu  : are monitor units or meterset weights for the individual spots [MU]
-            n   : is the estimated number of primary particles for this spot
+            mu  : are monitor units (meterset) for the individual spots [MU] (not relative meterset weights).
     spotsize: np.array() FWHM width of spot in along x and y axis, respectively [mm]
     enorm : nominal energy in [MeV]
     emeas : measured energy in [MeV] at exit nozzle

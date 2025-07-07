@@ -44,7 +44,7 @@ class Topas:
         sigyp = np.zeros(n_spots)
         corx = np.zeros(n_spots)
         cory = np.zeros(n_spots)
-        weights = np.zeros(n_spots)
+        nparts = np.zeros(n_spots)  # number of particles per spot, will be calculated from MUs
 
         # loop over all spots in all layers in all fields:
         # and fill the arrays
@@ -71,11 +71,11 @@ class Topas:
                 sigyp[_spot_index] = bm.f_divy(layer.energy_nominal)
                 corx[_spot_index] = bm.f_covx(layer.energy_nominal)
                 cory[_spot_index] = bm.f_covy(layer.energy_nominal)
-                weights[_spot_index] = spot[3]
+                nparts[_spot_index] = spot[2] * layer.mu_to_part_coef  # convert MU to number of particles
                 _spot_index += 1
             _nlayer += 1
 
-        total_number_of_particles = weights.sum()
+        total_number_of_particles = nparts.sum()
         nstat_scale = (nstat / total_number_of_particles) * myfield.scaling
         logger.info(f"Proton budget for this plan: {total_number_of_particles:.3e} protons")
         logger.info(f"Requested number of simulated particles: {nstat:.3e}")
@@ -117,7 +117,7 @@ class Topas:
             f.write(_topas_array(times, sigyp, "SigmaYprime", "f", 5, ""))
             f.write(_topas_array(times, corx, "CorrelationX", "f", 5, ""))
             f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
-            f.write(_topas_array(times, weights * nstat_scale, "spotWeight", "f", 0, ""))
+            f.write(_topas_array(times, nparts * nstat_scale, "spotWeight", "f", 0, ""))
 
             f.write(f"#Total number of particles: {total_number_of_particles * nstat_scale:.0f}\n")
             f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")
