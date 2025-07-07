@@ -792,7 +792,7 @@ class DicomUtil:
                 output.append(HLINE)
                 output.append(f"    Beam Name                : '{ib.BeamName}'")
                 output.append(f"    Number of control points : {ib.NumberOfControlPoints}")
-                output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints / 2:2}")
+                output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints // 2}")
                 output.append(f"    Final Cumulative Meterset Weight : {ib.FinalCumulativeMetersetWeight:.2f}")
 
                 if hasattr(ib, 'IonControlPointSequence'):

@@ -79,10 +79,11 @@ class Topas:
         nstat_scale = (nstat / total_number_of_particles) * myfield.scaling
         logger.info(f"Proton budget for this plan: {total_number_of_particles:.3e} protons")
         logger.info(f"Requested number of simulated particles: {nstat:.3e}")
-        logger.info(f"Scaling factor: {1 / nstat_scale:.4e}")
-        logger.info(f"Number of spots: {n_spots}")
+        logger.info(f"Scaling factor:          {1 / nstat_scale:.4e}")
+        logger.info(f"Number of spots:         {n_spots}")
         logger.info(f"Number of energy layers: {_nlayer}")
-        logger.info(f"BeamMeterset {myfield.meterset_weight_final:.2f} MU")
+        logger.info(f"Beam Meterset Weight:    {myfield.meterset_weight_final:.2f}")
+        logger.info(f"Beam Meterset:           {myfield.cum_mu:.2f} MU")
 
         # open output file for writing
         with open(fn, "w") as f:
