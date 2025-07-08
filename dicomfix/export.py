@@ -47,7 +47,7 @@ def load(file: Path, beam_model: BeamModel, scaling: float, flip_xy: bool, flip_
     if beam_model:
         p.beam_model = beam_model
     else:
-        logger.debug("BeamModel is unavailable in Plan.")
+        logger.error("BeamModel is unavailable in Plan.")
 
     p.apply_beammodel()
     p.flip_xy = flip_xy
@@ -175,7 +175,7 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
 
 def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
     """Load varian type dicom plans."""
-    logging.warning("DICOM reader not implemented yet.")
+    logging.warning("DICOM reader not tested yet.")
     p = Plan()
     try:
         import pydicom as dicom
@@ -194,9 +194,6 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
     p.plan_date = ds['RTPlanDate'].value
     p.sop_instance_uid = ds['SOPInstanceUID'].value
 
-    # protons per (MU/dEdx), Estimated calculation Nov. 2022 from DCPT beam model
-    # p.factor = 17247566.1  # find better solution for this, this is very approximate
-    # p.scaling = scaling  # nee note in IBA reader above.
     espread = 0.0  # will be set by beam model
     p.n_fields = int(ds['FractionGroupSequence'][0]['NumberOfBeams'].value)
     logger.debug("Found %i fields", p.n_fields)
@@ -215,6 +212,24 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
         myfield.n_layers = int(ds['IonBeamSequence'][i]['NumberOfControlPoints'].value)
         dcm_icps = ds['IonBeamSequence'][i]['IonControlPointSequence']  # layers for given field number
         logger.debug("Found %i layers in field number %i", myfield.n_layers, i)
+
+        # check snout position
+        if 'SnoutPosition' in dcm_field:
+            myfield.snout_position = float(dcm_field['SnoutPosition'].value)
+        # check if a range shifter is used
+        if 'RangeShifterSequence' in dcm_field:
+            for rs in dcm_field['RangeShifterSequence']:
+                if 'RangeShifterThickness' in rs:
+                    rsid = rs['RangeShifterID'].value
+                    if rsid == 'None':
+                        myfield.range_shifter_thickness = 0.0
+                    elif rsid == 'RS_3CM':
+                        myfield.range_shifter_thickness = 30.0
+                    elif rsid == 'RS_5CM':
+                        myfield.range_shifter_thickness = 50.0
+                else:
+                    logger.warning("Range shifter thickness not found in DICOM field.")
+            myfield.range_shifter_thickness = float(dcm_field['RangeShifterSequence'].value)
 
         cmu = 0.0
 
@@ -248,7 +263,6 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
             sum_mu = np.sum(_mu)
             if sum_mu > 0.0:
                 cmu += sum_mu
-                # print(sum_mu, cmu)
                 myfield.layers.append(Layer(spots, energy, energy, espread, cmu, nrepaint, nspots, mu_to_part_coef=0.0))
             else:
                 logger.debug("Skipping empty layer %i", j)

@@ -66,6 +66,7 @@ class Plan:
                 for layer in myfield.layers:
                     # calculate number of particles
                     layer.mu_to_part_coef = self.beam_model.f_ppmu(layer.energy_nominal)
+                    logger.debug(f"Layer {layer.energy_nominal} MeV, mu_to_part_coef = {layer.mu_to_part_coef:.2f}")
                     layer.energy_measured = self.beam_model.f_e(layer.energy_nominal)
                     layer.espread = self.beam_model.f_espread(layer.energy_nominal)
                     layer.spotsize = np.array(

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -20,6 +21,8 @@ class Field:
     ymax: float = 0.0
     meterset_weight_final: float = 0.0
     meterset_per_weight: float = 0.0
+    snout_position: float = 0.0  # position of snout in mm
+    range_shifter_thickness: Optional[float] = None
 
     sop_instance_uid: str = ""  # SOPInstanceUID for this field
 
