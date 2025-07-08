@@ -65,3 +65,8 @@ To run locally in venv
 ~/Projects/dicomfix$ pip install -e .
 ~/Projects/dicomfix$ python dicomfix/main.py
 ```
+
+
+The export tool:
+```
+PYTHONPATH=. python3 dicomfix/export.py -b res/DCPT_beam_model__v2.csv -v -N1000000 -t ../2022_DCPT_LET/data/resources/plans/plan02_mono/RN.1.2.246.352.71.5.37402163639.178320.20221207095327.dcm ../temp/fofo.txt"
