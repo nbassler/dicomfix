@@ -1,13 +1,13 @@
-from dataclasses import dataclass, field
-from typing import List  # or Sequence, depending on usage
-# from typing import Optional
-# from typing import Optional
+from dataclasses import dataclass, field as dc_field
+from typing import List
+
+from layer import Layer  # Ensure Layer is imported from the correct module
 
 
 @dataclass
 class Field:
     """A single field."""
-    layers: List = field(default_factory=list)  # https://stackoverflow.com/questions/53632152/
+    layers: List["Layer"] = dc_field(default_factory=list)
     # n_layers is now a property that returns the number of layers
 
     dose: float = 0.0  # dose in [Gy]
@@ -65,15 +65,18 @@ class Field:
         """Maximum Y coordinate of spots in this field."""
         return max(layer.ymax for layer in self.layers) if self.layers else 0.0
 
+    @property
+    def emin(self) -> float:
+        """Minimum energy of all layers in this field."""
+        return min(layer.energy_nominal for layer in self.layers) if self.layers else 0.0
+
+    @property
+    def emax(self) -> float:
+        """Maximum energy of all layers in this field."""
+        return max(layer.energy_nominal for layer in self.layers) if self.layers else 0.0
+
     def diagnose(self):
         """Print overview of field."""
-        energy_list = [layer.energy_nominal for layer in self.layers]
-        if energy_list:
-            emin = min(energy_list)
-            emax = max(energy_list)
-        else:
-            emin = 0.0
-            emax = 0.0
 
         indent = "   "  # indent layer output, since this is a branch
 
@@ -83,13 +86,8 @@ class Field:
         print(indent + "------------------------------------------------")
         for i, layer in enumerate(self.layers):
             print(indent + f"   Layer {i+1:3}: {layer.energy_nominal: 10.4f} MeV " + f"   {layer.n_spots:10d} spots")
-        print(indent + f"Lowest energy          : {emin:10.4f} MeV")
-        print(indent + f"Highest energy         : {emax:10.4f} MeV")
-        print(indent + "------------------------------------------------")
-        print(indent + f"Spot field min/max X   : {self.xmin:+10.4f} {self.xmax:+10.4f} mm")
-        print(indent + f"Spot field min/max Y   : {self.ymin:+10.4f} {self.ymax:+10.4f} mm")
-        print(indent + "------------------------------------------------")
-        print("")
+        print(indent + f"Lowest energy          : {self.emin:10.4f} MeV")
+        print(indent + f"Highest energy         : {self.emax:10.4f} MeV")
         print(indent + "------------------------------------------------")
         print(indent + f"Spot field min/max X   : {self.xmin:+10.4f} {self.xmax:+10.4f} mm")
         print(indent + f"Spot field min/max Y   : {self.ymin:+10.4f} {self.ymax:+10.4f} mm")

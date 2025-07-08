@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 class Topas:
     @staticmethod
     def export(fn: Path, myfield: Field, bm: BeamModel, nominal: bool,
-               nstat=100000,
-               sad_x=2000.0, sad_y=2560.0, beam_model_position=500.0):
+               nstat=100000):
         """
         Export the field to a topas input file.
         """

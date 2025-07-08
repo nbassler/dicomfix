@@ -42,8 +42,8 @@ class Plan:
     fields: list = field(default_factory=list)  # https://stackoverflow.com/questions/53632152/
     patient_id: str = ""  # ID of patient
     patient_name: str = ""  # Last name of patient
-    patient_initals: str = ""  # Initials of patient
-    patient_firstname: str = ""  # Last name of patient
+    patient_initials: str = ""  # Initials of patient
+    patient_firstname: str = ""  # First name of patient
     plan_label: str = ""  #
     plan_date: str = ""  #
     n_fields: int = 0
@@ -120,7 +120,7 @@ class Plan:
         """Print overview of plan."""
         print("Diagnostics:")
         print("---------------------------------------------------")
-        print(f"Patient Name           : '{self.patient_name}'       [{self.patient_initals}]")
+        print(f"Patient Name           : '{self.patient_name}'       [{self.patient_initials}]")
         print(f"Patient ID             : {self.patient_id}")
         print(f"Plan label             : {self.plan_label}")
         print(f"Plan date              : {self.plan_date}")
@@ -202,7 +202,7 @@ class Plan:
                         xpos = spot.x * 0.1  # mm -> cm
                         ypos = spot.y * 0.1  # mm -> cm
 
-                    wt = spot[3]
+                    wt = spot.mu
                     # format output file. Carefully tuned so they appear in nice columns synced to header. Maybe.
                     if cols == 7:
                         s = f"{energy:8.6f}     {espread:10.8f}  "
@@ -218,4 +218,5 @@ class Plan:
                         + f"{fwhmx:6.2f}   {wt:10.4e}\n"
                     output += s
             logger.debug("Export field %d %s, %g MeV", j, fout, myfield.layers[0].energy_nominal)
-            fout.write_text(output)  # still in field loop, output for every field
+            with open(fout, "w") as f:
+                f.write(output)  # still in field loop, output for every field

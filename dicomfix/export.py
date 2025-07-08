@@ -36,7 +36,7 @@ def load(file: Path, beam_model: BeamModel, scaling: float, flip_xy: bool, flip_
         p = load_PLD_IBA(file, scaling)
     elif ext == ".dcm":
         logger.debug("autodiscovery: Found a DICOM file.")
-        p = load_DICOM_VARIAN(file, scaling)  # so far I have no other dicom files
+        p = load_DICOM_RTPLAN(file, scaling)  # so far I have no other dicom files
     elif ext == ".rst":
         logger.debug("autodiscovery: Found a GSI raster scan file.")
         p = load_RASTER_GSI(file, scaling)
@@ -173,8 +173,8 @@ def load_PLD_IBA(file_pld: Path, scaling=1.0) -> Plan:
     return current_plan
 
 
-def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
-    """Load varian type dicom plans."""
+def load_DICOM_RTPLAN(file_dcm: Path, scaling=1.0) -> Plan:
+    """Load DICOM RTPLAN."""
     logging.warning("DICOM reader not tested yet.")
     p = Plan()
     try:
@@ -225,8 +225,7 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
 
         for j, icp in enumerate(icps):
 
-            # Several attributes are only set if they have changed, so most cases they are only set once
-            # at the first ion control point.
+            # Several attributes are only set once at the first ion control point.
             # The strategy here is then to still set them for every layer, even if they do not change.
             # This is to ensure that the field object has all necessary attributes set.
             # But also enables future stuff like arc therapy, where these values may change per layer.
@@ -319,7 +318,6 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
                 ))
             else:
                 logger.debug("Skipping empty layer %i", j)
-    p.diagnose()
     return p
 
 
