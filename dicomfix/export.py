@@ -183,89 +183,143 @@ def load_DICOM_VARIAN(file_dcm: Path, scaling=1.0) -> Plan:
         logger.error("pydicom is not installed, cannot read DICOM files.")
         logger.error("Please install pymchelper[dicom] or pymchelper[all] to us this feature.")
         return p
-    ds = dicom.dcmread(file_dcm)
+    d = dicom.dcmread(file_dcm)
     # Total number of energy layers used to produce SOBP
 
-    p.patient_id = ds['PatientID'].value
-    p.patient_name = ds['PatientName'].value
+    p.patient_id = d['PatientID'].value
+    p.patient_name = d['PatientName'].value
     p.patient_initals = ""
     p.patient_firstname = ""
-    p.plan_label = ds['RTPlanLabel'].value
-    p.plan_date = ds['RTPlanDate'].value
-    p.sop_instance_uid = ds['SOPInstanceUID'].value
+    p.plan_label = d['RTPlanLabel'].value
+    p.plan_date = d['RTPlanDate'].value
+    p.sop_instance_uid = d['SOPInstanceUID'].value
 
     espread = 0.0  # will be set by beam model
-    p.n_fields = int(ds['FractionGroupSequence'][0]['NumberOfBeams'].value)
+    p.n_fields = int(d['FractionGroupSequence'][0]['NumberOfBeams'].value)
     logger.debug("Found %i fields", p.n_fields)
 
-    dcm_fgs = ds['FractionGroupSequence'][0]['ReferencedBeamSequence']  # fields for given group number
-
-    for i, dcm_field in enumerate(dcm_fgs):
+    rbs = d['FractionGroupSequence'][0]['ReferencedBeamSequence']  # fields for given group number
+    for i, rb in enumerate(rbs):
         myfield = Field()
         logger.debug("Appending field number %d...", i)
         p.fields.append(myfield)
         myfield.sop_instance_uid = p.sop_instance_uid
-        myfield.dose = float(dcm_field['BeamDose'].value)
-        myfield.cum_mu = float(dcm_field['BeamMeterset'].value)
-        myfield.meterset_weight_final = float(ds['IonBeamSequence'][i]['FinalCumulativeMetersetWeight'].value)
-        myfield.meterset_per_weight = myfield.cum_mu / myfield.meterset_weight_final
-        myfield.n_layers = int(ds['IonBeamSequence'][i]['NumberOfControlPoints'].value)
-        dcm_icps = ds['IonBeamSequence'][i]['IonControlPointSequence']  # layers for given field number
-        logger.debug("Found %i layers in field number %i", myfield.n_layers, i)
+        myfield.dose = float(rb['BeamDose'].value)
+        myfield.cum_mu = float(rb['BeamMeterset'].value)
 
-        # check snout position
-        if 'SnoutPosition' in dcm_field:
-            myfield.snout_position = float(dcm_field['SnoutPosition'].value)
-        # check if a range shifter is used
-        if 'RangeShifterSequence' in dcm_field:
-            for rs in dcm_field['RangeShifterSequence']:
-                if 'RangeShifterThickness' in rs:
-                    rsid = rs['RangeShifterID'].value
-                    if rsid == 'None':
-                        myfield.range_shifter_thickness = 0.0
-                    elif rsid == 'RS_3CM':
-                        myfield.range_shifter_thickness = 30.0
-                    elif rsid == 'RS_5CM':
-                        myfield.range_shifter_thickness = 50.0
-                else:
-                    logger.warning("Range shifter thickness not found in DICOM field.")
-            myfield.range_shifter_thickness = float(dcm_field['RangeShifterSequence'].value)
+    ibs = d['IonBeamSequence']  # ion beam sequence, contains all fields
+    if len(ibs.value) != p.n_fields:
+        logger.error("Number of fields in IonBeamSequence (%d) does not match FractionGroupSequence (%d).",
+                     len(ibs.value), p.n_fields)
+        raise ValueError("Inconsistent number of fields in DICOM plan.")
+
+    for i, ib in enumerate(ibs):
+        myfield = p.fields[i]
+        myfield.meterset_weight_final = float(ib['FinalCumulativeMetersetWeight'].value)
+        myfield.meterset_per_weight = myfield.cum_mu / myfield.meterset_weight_final
+
+        icps = ib['IonControlPointSequence']  # layers for given field number
+        logger.debug("Found %i layers in field number %i", myfield.n_layers, i)
 
         cmu = 0.0
 
-        for j, layer in enumerate(dcm_icps):
+        for j, icp in enumerate(icps):
 
-            # gantry and couch angle is stored per energy layer, strangely
-            if 'NominalBeamEnergy' in layer:
-                energy = float(layer['NominalBeamEnergy'].value)  # Nominal energy in MeV
-            if 'NumberOfScanSpotPositions' in layer:
-                nspots = int(layer['NumberOfScanSpotPositions'].value)  # number of spots
-                logger.debug("Found %i spots in layer number %i at energy %f", nspots, j, energy)
-            if 'NumberOfPaintings' in layer:
-                nrepaint = int(layer['NumberOfPaintings'].value)  # number of spots
+            # Several attributes are only set if they have changed, so most cases they are only set once
+            # at the first ion control point.
+            # The strategy here is then to still set them for every layer, even if they do not change.
+            # This is to ensure that the field object has all necessary attributes set.
+            # But also enables future stuff like arc therapy, where these values may change per layer.
+            if 'LateralSpreadingDeviceSettingsSequence' in icp:
+                if len(icp['LateralSpreadingDeviceSettingsSequence'].value) != 2:
+                    logger.error("LateralSpreadingDeviceSettingsSequence should contain exactly 2 elements, found %d.",
+                                 len(ib['LateralSpreadingDeviceSettingsSequence'].value))
+                    raise ValueError("Invalid LateralSpreadingDeviceSettingsSequence in DICOM plan.")
 
-            if not all(tag in layer for tag in ['ScanSpotPositionMap', 'ScanSpotMetersetWeights', 'ScanningSpotSize']):
+                lss = icp['LateralSpreadingDeviceSettingsSequence']
+                sad_x = float(lss[0]['IsocenterToLateralSpreadingDeviceDistance'].value)
+                sad_y = float(lss[1]['IsocenterToLateralSpreadingDeviceDistance'].value)
+
+                logger.debug("Set Lateral spreading device distances: X = %.2f mm, Y = %.2f mm",
+                             sad_x, sad_y)
+
+            # check snout position
+            if 'SnoutPosition' in icp:
+                snout_position = float(icp['SnoutPosition'].value)
+
+            # check if a range shifter is used
+            if 'RangeShifterSequence' in icp:
+                for rs in icp['RangeShifterSequence']:
+                    if 'RangeShifterID' in rs:
+                        rsid = rs['RangeShifterID'].value
+                        logger.debug("Found range shifter ID: %s", rsid)
+                        if rsid == 'None':
+                            myfield.range_shifter_thickness = 0.0
+                        elif rsid == 'RS_3CM':
+                            myfield.range_shifter_thickness = 30.0
+                        elif rsid == 'RS_5CM':
+                            myfield.range_shifter_thickness = 50.0
+                    else:
+                        logger.warning("Unknown range shifter ID in DICOM plan: %s", rsid)
+                myfield.range_shifter_thickness = float(ib['RangeShifterSequence'].value)
+
+            # isocenter position and gantry counch angles are stored in each layer,
+            # for now we assume they are the same for all layers in a field,
+            # ideally these attributes should be stored in the layer object
+            # then conversion can change it to a field level for topas export.
+            if 'IsocenterPosition' in icp:
+                isocenter = tuple(float(v) for v in icp['IsocenterPosition'].value)
+            if 'GantryAngle' in icp:
+                gantry_angle = float(icp['GantryAngle'].value)
+            if 'PatientSupportAngle' in icp:
+                couch_angle = float(icp['PatientSupportAngle'].value)
+
+            if not all(tag in icp for tag in ['NominalBeamEnergy',
+                                              'NumberOfScanSpotPositions',
+                                              'ScanSpotPositionMap',
+                                              'ScanSpotMetersetWeights',
+                                              'ScanningSpotSize']):
                 raise ValueError("Layer is missing required DICOM tags for spot extraction.")
 
+            energy = float(icp['NominalBeamEnergy'].value)  # Nominal energy in MeV
+            nspots = int(icp['NumberOfScanSpotPositions'].value)  # number of spots
+            logger.debug("Found %i spots in layer number %i at energy %f", nspots, j, energy)
+            nrepaint = int(icp['NumberOfPaintings'].value)  # number of spots
+
             # Extract spot positions [mm]
-            _pos = np.array(layer['ScanSpotPositionMap'].value).reshape(nspots, 2)
+            pos = np.array(icp['ScanSpotPositionMap'].value).reshape(nspots, 2)
 
             # Extract spot MU and scale [MU]
-            _mu = np.array(layer['ScanSpotMetersetWeights'].value).reshape(nspots) * myfield.meterset_per_weight
+            mu = np.array(icp['ScanSpotMetersetWeights'].value).reshape(nspots) * myfield.meterset_per_weight
 
             # Extract spot nominal sizes [mm FWHM]
-            size_x, size_y = layer['ScanningSpotSize'].value
+            size_x, size_y = icp['ScanningSpotSize'].value
 
-            spots = [Spot(x=x, y=y, mu=mu, size_x=size_x, size_y=size_y)
-                     for (x, y), mu in zip(_pos, _mu)]
+            spots = [Spot(x=x, y=y, mu=mu_val, size_x=size_x, size_y=size_y)
+                     for (x, y), mu_val in zip(pos, mu)]
 
             # only append layer, if sum of mu are larger than 0
-            sum_mu = np.sum(_mu)
+            sum_mu = np.sum(mu)
+
             if sum_mu > 0.0:
                 cmu += sum_mu
-                myfield.layers.append(Layer(spots, energy, energy, espread, cmu, nrepaint, nspots, mu_to_part_coef=0.0))
+                myfield.layers.append(Layer(
+                    spots=spots,
+                    energy_nominal=energy,
+                    energy_measured=energy,
+                    espread=espread,
+                    cum_mu=cmu,
+                    repaint=nrepaint,
+                    mu_to_part_coef=0.0,
+                    isocenter=isocenter,
+                    gantry_angle=gantry_angle,
+                    couch_angle=couch_angle,
+                    snout_position=snout_position,
+                    sad=(sad_x, sad_y)
+                ))
             else:
                 logger.debug("Skipping empty layer %i", j)
+    p.diagnose()
     return p
 
 
@@ -373,7 +427,7 @@ def main(args=None) -> int:
 
     if parsed_args.field_nr < 1:
         logger.error("Loop over fields not implemented yet.")
-        # TODO: loop over alle fields in the plan
+        # TODO: loop over all fields in the plan
     else:
         field_idx = parsed_args.field_nr - 1
 

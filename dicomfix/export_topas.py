@@ -9,6 +9,8 @@ from dicomfix.export import Field, BeamModel
 
 logger = logging.getLogger(__name__)
 
+# TODO: implement CT setup and Water phantom setup.
+
 
 class Topas:
     @staticmethod
@@ -26,8 +28,8 @@ class Topas:
         n_spots = 0
         # loop over all spots in all layers in all fields:
 
-        for layer in myfield.layers:
-            for spot in layer.spots:
+        for mylayer in myfield.layers:
+            for spot in mylayer.spots:
                 n_spots += 1
 
         # establish size of output arrays
@@ -50,32 +52,39 @@ class Topas:
         # and fill the arrays
         _spot_index = 0
         _nlayer = 0
-        for layer in myfield.layers:
+        for mylayer in myfield.layers:
             if nominal:
-                energy = layer.energy_nominal
+                energy = mylayer.energy_nominal
             else:
                 # energy from scipy interpolation
-                energy = layer.energy_measured
-            espread = layer.espread
-            for spot in layer.spots:
+                energy = mylayer.energy_measured
+            espread = mylayer.espread
+
+            sad_x = myfield.layers[0].sad[0]
+            sad_y = myfield.layers[0].sad[1]
+
+            for spot in mylayer.spots:
                 times[_spot_index] = _spot_index + 1
                 energies[_spot_index] = energy
                 espreads[_spot_index] = espread
                 # calculate position and angle in mm and degrees at beam model position,
                 # which is upstream of the isocenter
-                posx[_spot_index] = spot.x * (sad_x - beam_model_position) / sad_x
+                posx[_spot_index] = spot.x * (sad_x - bm.beam_model_position) / sad_x
                 angx[_spot_index] = np.arctan(spot.x / sad_x) * 180.0 / np.pi
-                posy[_spot_index] = spot.y * (sad_y - beam_model_position) / sad_y
+                posy[_spot_index] = spot.y * (sad_y - bm.beam_model_position) / sad_y
                 angy[_spot_index] = np.arctan(spot.y / sad_y) * 180.0 / np.pi
-                sigx[_spot_index] = bm.f_sx(layer.energy_nominal)
-                sigy[_spot_index] = bm.f_sy(layer.energy_nominal)
-                sigxp[_spot_index] = bm.f_divx(layer.energy_nominal)
-                sigyp[_spot_index] = bm.f_divy(layer.energy_nominal)
-                corx[_spot_index] = bm.f_covx(layer.energy_nominal)
-                cory[_spot_index] = bm.f_covy(layer.energy_nominal)
-                nparts[_spot_index] = spot.mu * layer.mu_to_part_coef  # convert MU to number of particles
+                sigx[_spot_index] = bm.f_sx(mylayer.energy_nominal)
+                sigy[_spot_index] = bm.f_sy(mylayer.energy_nominal)
+                sigxp[_spot_index] = bm.f_divx(mylayer.energy_nominal)
+                sigyp[_spot_index] = bm.f_divy(mylayer.energy_nominal)
+                corx[_spot_index] = bm.f_covx(mylayer.energy_nominal)
+                cory[_spot_index] = bm.f_covy(mylayer.energy_nominal)
+                nparts[_spot_index] = spot.mu * mylayer.mu_to_part_coef  # convert MU to number of particles
                 _spot_index += 1
             _nlayer += 1
+
+        # show sad_x and sad_y
+        logger.info(f"SAD X: {sad_x:.2f} mm, SAD Y: {sad_y:.2f} mm")
 
         total_number_of_particles = nparts.sum()
         nstat_scale = (nstat / total_number_of_particles) * myfield.scaling
@@ -91,7 +100,7 @@ class Topas:
         with open(fn, "w") as f:
             f.write(f"#PARTICLE_SCALING = {1 / nstat_scale:.0f}\n")
             f.write(f"#SOPInstanceUID = {myfield.sop_instance_uid}\n")
-            f.write(_topas_variables())
+            f.write(_topas_variables(myfield))
             f.write(_topas_setup())
             f.write(_topas_world_setup())
             f.write(_topas_geometry())
@@ -146,21 +155,29 @@ def _topas_array(time_arr: np.array, arr: np.array, name: str, fmt: str = "f", p
     return s
 
 
-def _topas_variables() -> str:
+def _topas_variables(myfield: Field) -> str:
+    # Extract isocenter, gantry, couch, and snout_position from the first layer
+    layer = myfield.layers[0]  # varying isocenter, gantry, couch, snout_position per controlpoint is not supported.
+    isocenter = getattr(layer, "isocenter", [0.0, 0.0, 0.0])
+    gantry_angle = getattr(layer, "gantry_angle", 0.0)
+    couch_angle = getattr(layer, "couch_angle", 0.0)
+    dicom_origin = getattr(layer, "dicom_origin", [0.0, 0.0, 0.0])
+    snout_position = getattr(layer, "snout_position", 421.0)
+
     lines = [
         "##############################################",
         "###           V A R I A B L E S            ###",
         "##############################################",
         "",
-        "d:Rt/Plan/IsoCenterX                 = 0.00 mm",
-        "d:Rt/Plan/IsoCenterY                 = 0.00 mm",
-        "d:Rt/Plan/IsoCenterZ                 = 0.00 mm",
-        "d:Ge/snoutPosition                   = 421.00 mm",
-        "d:Ge/gantryAngle                     = 0.00 deg",
-        "d:Ge/couchAngle                      = 0.00 deg",
-        "dc:Ge/Patient/DicomOriginX           = 0.00 mm",
-        "dc:Ge/Patient/DicomOriginY           = 0.00 mm",
-        "dc:Ge/Patient/DicomOriginZ           = 0.00 mm",
+        f"d:Rt/Plan/IsoCenterX                 = {isocenter[0]:.2f} mm",
+        f"d:Rt/Plan/IsoCenterY                 = {isocenter[1]:.2f} mm",
+        f"d:Rt/Plan/IsoCenterZ                 = {isocenter[2]:.2f} mm",
+        f"d:Ge/snoutPosition                   = {snout_position:.2f} mm",
+        f"d:Ge/gantryAngle                     = {gantry_angle:.2f} deg",
+        f"d:Ge/couchAngle                      = {couch_angle:.2f} deg",
+        f"dc:Ge/Patient/DicomOriginX           = {dicom_origin[0]:.2f} mm",
+        f"dc:Ge/Patient/DicomOriginY           = {dicom_origin[1]:.2f} mm",
+        f"dc:Ge/Patient/DicomOriginZ           = {dicom_origin[2]:.2f} mm",
         "\n"
     ]
     return "\n".join(lines)
@@ -283,8 +300,8 @@ def _topas_range_shifter(myfield: Field) -> str:
         f"d:Ge/RangeShifter/HLX                = {200:.2f} mm",
         f"d:Ge/RangeShifter/HLY                = {200:.2f} mm",
         f"d:Ge/RangeShifter/HLZ                = {myfield.range_shifter_thickness/2:.2f} mm",
-        's:Ge/RangeShifter/Color                        = "Orange"',
-        f'd:Ge/RangeShifter/TransZ                       = {-myfield.range_shifter_distance:.2f} mm\n',
+        's:Ge/RangeShifter/Color              = "Orange"',
+        f'd:Ge/RangeShifter/TransZ            = {-myfield.range_shifter_distance:.2f} mm\n',  # TODO: not to center of RS.
         "\n"
     ]
     return "\n".join(lines)

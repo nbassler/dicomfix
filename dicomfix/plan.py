@@ -88,37 +88,33 @@ class Plan:
         for myfield in self.fields:
             myfield.cum_particles = 0.0
             myfield.cum_mu = 0.0
-            myfield.xmin = 0.0
-            myfield.xmax = 0.0
-            myfield.ymin = 0.0
-            myfield.ymax = 0.0
+            # myfield.xmin = 0.0
+            # myfield.xmax = 0.0
+            # myfield.ymin = 0.0
+            # myfield.ymax = 0.0
 
             # set layer specific values
             for layer in myfield.layers:
                 logger.debug("Processing layer with %d spots", layer.n_spots)
                 if layer.n_spots > 0:
-                    x_list = [spot.x for spot in layer.spots]
-                    y_list = [spot.y for spot in layer.spots]
+                    # x_list = [spot.x for spot in layer.spots]
+                    # y_list = [spot.y for spot in layer.spots]
                     mu_list = [spot.mu for spot in layer.spots]
-                    layer.xmin = min(x_list)
-                    layer.xmax = max(x_list)
-                    layer.ymin = min(y_list)
-                    layer.ymax = max(y_list)
                     layer.cum_mu = sum(mu_list)
                     layer.is_empty = False
 
                     myfield.cum_particles += layer.cum_particles
                     myfield.cum_mu += layer.cum_mu
 
-                if layer.xmin < myfield.xmin:
-                    myfield.xmin = layer.xmin
-                if layer.xmax > myfield.xmax:
-                    myfield.xmax = layer.xmax
+                # if layer.xmin < myfield.xmin:
+                #     myfield.xmin = layer.xmin
+                # if layer.xmax > myfield.xmax:
+                #     myfield.xmax = layer.xmax
 
-                if layer.ymin < myfield.ymin:
-                    myfield.ymin = layer.ymin
-                if layer.ymax > myfield.ymax:
-                    myfield.ymax = layer.ymax
+                # if layer.ymin < myfield.ymin:
+                #     myfield.ymin = layer.ymin
+                # if layer.ymax > myfield.ymax:
+                #     myfield.ymax = layer.ymax
 
     def diagnose(self):
         """Print overview of plan."""

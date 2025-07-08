@@ -4,13 +4,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def get_fwhm(sigma):
     return sigma * 2.0 * np.sqrt(2.0 * np.log(2.0))
+
 
 class BeamModel():
     """Beam model from a given CSV file."""
 
-    def __init__(self, fn: Path, nominal=True):
+    def __init__(self, fn: Path, nominal=True, beam_model_position=500.0):
         """
         Load a beam model given as a CSV file.
 
@@ -75,5 +77,4 @@ class BeamModel():
             self.f_covy = interp1d(energy, data[:, 9], kind=k)  # cov (y, y') [mm]
 
         self.data = data
-
-
+        self.beam_model_position = beam_model_position  # position of the beam model in mm
