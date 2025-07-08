@@ -61,10 +61,12 @@ class Topas:
                 times[_spot_index] = _spot_index + 1
                 energies[_spot_index] = energy
                 espreads[_spot_index] = espread
-                posx[_spot_index] = spot.x
-                angx[_spot_index] = np.arctan(spot.x / (sad_x - beam_model_position)) * 180.0 / np.pi
-                posy[_spot_index] = spot.y
-                angy[_spot_index] = np.arctan(spot.y / (sad_y - beam_model_position)) * 180.0 / np.pi
+                # calculate position and angle in mm and degrees at beam model position,
+                # which is upstream of the isocenter
+                posx[_spot_index] = spot.x * (sad_x - beam_model_position) / sad_x
+                angx[_spot_index] = np.arctan(spot.x / sad_x) * 180.0 / np.pi
+                posy[_spot_index] = spot.y * (sad_y - beam_model_position) / sad_y
+                angy[_spot_index] = np.arctan(spot.y / sad_y) * 180.0 / np.pi
                 sigx[_spot_index] = bm.f_sx(layer.energy_nominal)
                 sigy[_spot_index] = bm.f_sy(layer.energy_nominal)
                 sigxp[_spot_index] = bm.f_divx(layer.energy_nominal)
@@ -119,21 +121,11 @@ class Topas:
             f.write(_topas_array(times, cory, "CorrelationY", "f", 5, ""))
             f.write(_topas_array(times, nparts * nstat_scale, "spotWeight", "f", 0, ""))
 
-            # debug, get the sum of the spotweight table:
-            print(nparts.sum() * nstat_scale, nparts.sum(), len(nparts))
-
-            print(f"Total number of particles: {total_number_of_particles * nstat_scale:.0f}")
-
             f.write(f"#Total number of particles: {total_number_of_particles * nstat_scale:.0f}\n")
             f.write(f"#Total number of particles scaled down by {1 / nstat_scale:.0f}\n")
             f.write(f"#Total MU in field: {myfield.cum_mu:.2f}\n")
 
             f.write(_topas_footer())
-
-            # print("s:Tf/Energy/Function                 = \"Step\"")
-        # _fm = " ".join(map(str, times.astype(int)))
-        # print(f"dv:Tf/Energy/Times                   = {n_spots} {_fm}")
-        # print(f"dv:Tf/Energy/Times                   = {n_spots} {_fm}")
 
 
 def _topas_array(time_arr: np.array, arr: np.array, name: str, fmt: str = "f", precision: int = 0, unit=""):
@@ -271,6 +263,28 @@ def _topas_beam() -> str:
         "u:So/Field/CorrelationY              = Tf/CorrelationY/Value",
         "",
         "i:So/Field/NumberOfHistoriesInRun    = Tf/spotWeight/Value",
+        "\n"
+    ]
+    return "\n".join(lines)
+
+
+def _topas_range_shifter(myfield: Field) -> str:
+    if Field.range_shifter_thickness is None:
+        return ""
+
+    lines = [
+        "##############################################",
+        "###         R A N G E   S H I F T E R       ###",
+        "##############################################",
+        's:Ge/RangeShifter/Parent             = "Gantry"',
+        's:Ge/RangeShifter/Type               = "TsBox"',
+        's:Ge/RangeShifter/Material           = "Lexan"',
+        'b:Ge/RangeShifter/Isparallel         = "True"',
+        f"d:Ge/RangeShifter/HLX                = {200:.2f} mm",
+        f"d:Ge/RangeShifter/HLY                = {200:.2f} mm",
+        f"d:Ge/RangeShifter/HLZ                = {myfield.range_shifter_thickness/2:.2f} mm",
+        's:Ge/RangeShifter/Color                        = "Orange"',
+        f'd:Ge/RangeShifter/TransZ                       = {-myfield.range_shifter_distance:.2f} mm\n',
         "\n"
     ]
     return "\n".join(lines)
