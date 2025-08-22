@@ -22,6 +22,8 @@ def test_call_cmd_inspect():
         logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
         assert e.value.code == 0
 
+    logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
+    assert e.value.code == 0
 
 def test_tr4wiz(tmp_path):
     fn = str(input_files['plan'])
