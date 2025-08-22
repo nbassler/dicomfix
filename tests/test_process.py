@@ -15,7 +15,7 @@ input_files = {
 
 
 def test_call_cmd_inspect():
-    """Test calling pymchelper to inspect an input dicom."""
+    """Test calling dicomfix to inspect an input DICOM file."""
     fn = str(input_files['plan'])
     with pytest.raises(SystemExit) as e:
         dicomfix.main.main([fn, '-i'])
