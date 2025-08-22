@@ -11,6 +11,7 @@ authors = [
 ]
 license = { text = "MIT" }
 readme = "README.md"
+requires-python = ">=3.9"
 dependencies = [
     "pydicom>=2.3.1",
     "pylibjpeg",          # JPEG decoding support for DICOM files
@@ -20,6 +21,28 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+# New metadata
+keywords = ["dicom", "radiotherapy", "proton", "rtplan", "medical-physics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+
+[project.urls]
+Homepage = "https://github.com/nbassler/dicomfix"
+Repository = "https://github.com/nbassler/dicomfix"
+Issues = "https://github.com/nbassler/dicomfix/issues"
+Documentation = "https://nbassler.github.io/dicomfix"  # for docs later
+
+
+# Optional: URL metadata
 [tool.setuptools]
 packages = ["dicomfix"]
 
