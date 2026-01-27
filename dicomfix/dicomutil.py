@@ -701,11 +701,6 @@ class DicomUtil:
             for ss in ib.SnoutSequence:
                 ss.SnoutID = "S1"
 
-            # # remove any range shifter sequence
-            # if hasattr(ib, "RangeShifterSequence"):
-            #     del ib.RangeShifterSequence
-            #     ib.NumberOfRangeShifters = 0
-
             # Check if table position are missing. Attributes may be there, but set to None
 
             if ib.IonControlPointSequence[0].TableTopVerticalPosition is None:
@@ -739,11 +734,15 @@ class DicomUtil:
             for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
-                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
-                           else [icp.ScanSpotMetersetWeights])
+
+                # first CumulativeDoseReferenceCoefficient is always zero, so cumulative
+                # after the coefficient has been set.
                 icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / \
                     ib.FinalCumulativeMetersetWeight
                 icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
+
+                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
+                           else [icp.ScanSpotMetersetWeights])
 
     def save(self, output_file):
         """
