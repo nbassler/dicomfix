@@ -280,7 +280,9 @@ class DicomUtil:
 
                 # Check if this is a real energy layer (non-repeated one)
                 # If there are non-zero weights, this is a real energy layer
-                if any(w > 0.0 for w in icp.ScanSpotMetersetWeights):
+                _msweights = icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list) else [
+                    icp.ScanSpotMetersetWeights]
+                if any(w > 0.0 for w in _msweights):
                     # Apply the correct factor for the real energy layer
                     if layer_factors:
                         logger.info(
@@ -710,7 +712,8 @@ class DicomUtil:
             for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
-                cum += sum(icp.ScanSpotMetersetWeights)
+                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
+                           else [icp.ScanSpotMetersetWeights])
                 icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / \
                     ib.FinalCumulativeMetersetWeight
                 icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
