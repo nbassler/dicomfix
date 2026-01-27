@@ -11,6 +11,8 @@ import copy
 import datetime
 import pydicom
 import random
+
+from pydicom.uid import generate_uid
 # from dicomfix.dicom_comparator import compare_dicoms  # If you plan to use this in the future
 
 
@@ -77,6 +79,9 @@ class DicomUtil:
         if config.fix_raystation:  # must be fixed first
             self.fix_raystation()
 
+        if config.tolerance_table:
+            self.add_table_tolerance_sequence()
+
         if config.approve:
             self.approve_plan()
 
@@ -88,9 +93,6 @@ class DicomUtil:
 
         if config.rescale_dose or config.rescale_factor or config.rescale_minimize or config.weights:
             self.rescale_plan(config)
-
-        if config.duplicate_fields:
-            self.duplicate_fields(config.duplicate_fields)
 
         if config.gantry_angles:
             self.set_gantry_angles(config.gantry_angles)
@@ -124,6 +126,10 @@ class DicomUtil:
 
         if config.repainting:
             self.set_repainting(config.repainting)
+
+        # Field duplication must be done last, when all other modifications are done
+        if config.duplicate_fields:
+            self.duplicate_fields(config.duplicate_fields)
 
     def approve_plan(self):
         """Set the approval status of the plan to 'APPROVED'."""
@@ -235,6 +241,8 @@ class DicomUtil:
         """
         d = self.dicom
 
+        layer_factors_len = 0
+
         if layer_factors:
             layer_factors_len = len(layer_factors)
 
@@ -278,17 +286,20 @@ class DicomUtil:
 
                 new_spot_weights = [0.0] * len(original_spot_weights)
 
+                # Initialize layer_factor to 1.0 for all spots by default
+                layer_factor = 1.0
+
                 # Check if this is a real energy layer (non-repeated one)
                 # If there are non-zero weights, this is a real energy layer
-                if any(w > 0.0 for w in icp.ScanSpotMetersetWeights):
+                _msweights = icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list) else [
+                    icp.ScanSpotMetersetWeights]
+                if any(w > 0.0 for w in _msweights):
                     # Apply the correct factor for the real energy layer
                     if layer_factors:
                         logger.info(
                             f"Reduce cumulative weight in layer {real_energy_layer_index} " +
                             f"by factor: {layer_factors[real_energy_layer_index]:.4f}")
                         layer_factor = layer_factors[real_energy_layer_index]
-                    else:
-                        layer_factor = 1.0
 
                     # Increment the real energy layer index for the next valid layer
                     real_energy_layer_index += 1
@@ -426,14 +437,24 @@ class DicomUtil:
         d = self.dicom
         if len(table_position) != 3:
             raise ValueError(f"Table Position expects three values, got {len(table_position)}.")
+
+        last_ibs = None
         for ibs in d.IonBeamSequence:
+            last_ibs = ibs
+            # check if ibs.IonControlPointSequence has the required attributes
             ibs.IonControlPointSequence[0].TableTopVerticalPosition = table_position[0]
             ibs.IonControlPointSequence[0].TableTopLongitudinalPosition = table_position[1]
             ibs.IonControlPointSequence[0].TableTopLateralPosition = table_position[2]
-        logger.info(f"Table vertical position     : {ibs.IonControlPointSequence[0].TableTopVerticalPosition * 0.1:8.2f} cm")
-        logger.info("Table longitudinal position : " +
-                    f"{ibs.IonControlPointSequence[0].TableTopLongitudinalPosition * 0.1:8.2f} cm")
-        logger.info(f"Table lateral position      : {ibs.IonControlPointSequence[0].TableTopLateralPosition * 0.1:8.2f} cm")
+
+        if last_ibs:
+            logger.info(
+                f"Table vertical position     : {last_ibs.IonControlPointSequence[0].TableTopVerticalPosition * 0.1:8.2f} cm")
+            logger.info("Table longitudinal position : " +
+                        f"{last_ibs.IonControlPointSequence[0].TableTopLongitudinalPosition * 0.1:8.2f} cm")
+            logger.info(
+                f"Table lateral position      : {last_ibs.IonControlPointSequence[0].TableTopLateralPosition * 0.1:8.2f} cm")
+        else:
+            raise Exception("No IonBeamSequence found to set table position.")
 
     def set_snout_position(self, snout_position):
         """
@@ -601,6 +622,24 @@ class DicomUtil:
         logger.info(f"All snout positions set to \
                         {d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition*0.1:8.2f} cm")
 
+    def add_table_tolerance_sequence(self):
+        d = self.dicom
+
+        if not hasattr(d, "IonToleranceTableSequence"):
+            logger.info(" Adding a IonToleranceTableSequence T1.")
+            d.IonToleranceTableSequence = [pydicom.Dataset()]
+        logger.info(" Setting default values for IonToleranceTableSequence T1.")
+        d.IonToleranceTableSequence[0].ToleranceTableNumber = 1
+        d.IonToleranceTableSequence[0].ToleranceTableLabel = "T1"
+        d.IonToleranceTableSequence[0].GantryAngleTolerance = 0.5
+        d.IonToleranceTableSequence[0].SnoutPositionTolerance = 5.0
+        d.IonToleranceTableSequence[0].PatientSupportAngleTolerance = 3.0
+        d.IonToleranceTableSequence[0].TableTopPitchAngleTolerance = 3.0
+        d.IonToleranceTableSequence[0].TableTopRollAngleTolerance = 3.0
+        d.IonToleranceTableSequence[0].TableTopVerticalPositionTolerance = 20.0
+        d.IonToleranceTableSequence[0].TableTopLongitudinalPositionTolerance = 20.0
+        d.IonToleranceTableSequence[0].TableTopLateralPositionTolerance = 20.0
+
     def fix_raystation(self):
         """
         Apply RayStation-specific fixes to the DICOM plan.
@@ -643,23 +682,13 @@ class DicomUtil:
             logger.info(" RayStation: DoseReferenceSequence was missing. Adding a TARGET as #1.")
             d.DoseReferenceSequence = [pydicom.Dataset()]
             d.DoseReferenceSequence[0].DoseReferenceNumber = 1
-            d.DoseReferenceSequence[0].DoseReferenceUID = pydicom.uid.generate_uid()
+            d.DoseReferenceSequence[0].DoseReferenceUID = generate_uid()
             d.DoseReferenceSequence[0].DoseReferenceStructureType = "SITE"
             d.DoseReferenceSequence[0].DoseReferenceDescription = "Target"
 
         if not hasattr(d, "IonToleranceTableSequence"):
-            logger.info(" RayStation: IonToleranceTableSequence was missing. Adding a T1.")
-            d.IonToleranceTableSequence = [pydicom.Dataset()]
-            d.IonToleranceTableSequence[0].ToleranceTableNumber = 1
-            d.IonToleranceTableSequence[0].ToleranceTableLabel = "T1"
-            d.IonToleranceTableSequence[0].GantryAngleTolerance = 0.5
-            d.IonToleranceTableSequence[0].SnoutPositionTolerance = 5.0
-            d.IonToleranceTableSequence[0].PatientSupportAngleTolerance = 3.0
-            d.IonToleranceTableSequence[0].TableTopPitchAngleTolerance = 3.0
-            d.IonToleranceTableSequence[0].TableTopRollAngleTolerance = 3.0
-            d.IonToleranceTableSequence[0].TableTopVerticalPositionTolerance = 20.0
-            d.IonToleranceTableSequence[0].TableTopLongitudinalPositionTolerance = 20.0
-            d.IonToleranceTableSequence[0].TableTopLateralPositionTolerance = 20.0
+            logger.info(" RayStation: IonToleranceTableSequence was missing. Adding default T1.")
+            self.add_table_tolerance_sequence()
 
         # Loop over fields
         for ib in d.IonBeamSequence:
@@ -671,11 +700,6 @@ class DicomUtil:
             # Loop over snout sequence and set SnoutID to "S1"
             for ss in ib.SnoutSequence:
                 ss.SnoutID = "S1"
-
-            # remove any range shifter sequence
-            if hasattr(ib, "RangeShifterSequence"):
-                del ib.RangeShifterSequence
-                ib.NumberOfRangeShifters = 0
 
             # Check if table position are missing. Attributes may be there, but set to None
 
@@ -710,10 +734,15 @@ class DicomUtil:
             for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
-                cum += sum(icp.ScanSpotMetersetWeights)
+
+                # first CumulativeDoseReferenceCoefficient is always zero, so cumulative
+                # after the coefficient has been set.
                 icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = cum / \
                     ib.FinalCumulativeMetersetWeight
                 icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
+
+                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
+                           else [icp.ScanSpotMetersetWeights])
 
     def save(self, output_file):
         """

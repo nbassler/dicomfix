@@ -55,7 +55,11 @@ def parse_arguments(args=None):
 
     parser.add_argument('-tp', '--table_position', type=str, default=None,
                         help='New table position vertical,longitudinal,lateral [cm]. ' +
-                             'Negative values should be in quotes and leading space.')
+                             'Use like tp="0,10.5,-5" (important to include the equation mark and quotes)')
+    parser.add_argument('-tt', '--tolerance_table', action='store_true', default=False,
+                        help='Add a default IonToleranceTableSequence to the plan.'
+                        'Existing values will be overwritten with a default set.')
+
     parser.add_argument('-sp', '--snout_position', type=float, default=None,
                         help='Set new snout position [cm]')
     parser.add_argument('-tm', '--treatment_machine', type=str, default=None,

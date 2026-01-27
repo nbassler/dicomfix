@@ -32,6 +32,7 @@ class Config:
         self.rescale_factor = parsed_args.rescale_factor
         self.rescale_minimize = parsed_args.rescale_minimize
         self.table_position = self.parse_position(parsed_args.table_position)
+        self.tolerance_table = parsed_args.tolerance_table
         self.snout_position = self.parse_snout_position(parsed_args.snout_position)
         self.treatment_machine = parsed_args.treatment_machine
         self.plan_label = parsed_args.plan_label
