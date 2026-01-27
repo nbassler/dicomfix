@@ -11,6 +11,8 @@ import copy
 import datetime
 import pydicom
 import random
+
+from pydicom.uid import generate_uid
 # from dicomfix.dicom_comparator import compare_dicoms  # If you plan to use this in the future
 
 
@@ -285,7 +287,7 @@ class DicomUtil:
                 new_spot_weights = [0.0] * len(original_spot_weights)
 
                 # Initialize layer_factor to 1.0 for all spots by default
-                # layer_factor = 1.0
+                layer_factor = 1.0
 
                 # Check if this is a real energy layer (non-repeated one)
                 # If there are non-zero weights, this is a real energy layer
@@ -298,8 +300,6 @@ class DicomUtil:
                             f"Reduce cumulative weight in layer {real_energy_layer_index} " +
                             f"by factor: {layer_factors[real_energy_layer_index]:.4f}")
                         layer_factor = layer_factors[real_energy_layer_index]
-                    else:
-                        layer_factor = 1.0
 
                     # Increment the real energy layer index for the next valid layer
                     real_energy_layer_index += 1
@@ -682,7 +682,7 @@ class DicomUtil:
             logger.info(" RayStation: DoseReferenceSequence was missing. Adding a TARGET as #1.")
             d.DoseReferenceSequence = [pydicom.Dataset()]
             d.DoseReferenceSequence[0].DoseReferenceNumber = 1
-            d.DoseReferenceSequence[0].DoseReferenceUID = pydicom.uid.generate_uid()
+            d.DoseReferenceSequence[0].DoseReferenceUID = generate_uid()
             d.DoseReferenceSequence[0].DoseReferenceStructureType = "SITE"
             d.DoseReferenceSequence[0].DoseReferenceDescription = "Target"
 
