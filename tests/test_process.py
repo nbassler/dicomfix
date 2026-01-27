@@ -1,9 +1,9 @@
+import subprocess
 import logging
 import pytest
-
 from pathlib import Path
-
 import dicomfix.main
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ def test_call_cmd_inspect():
     logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
     assert e.value.code == 0
 
+
 def test_tr4wiz(tmp_path):
     fn = str(input_files['plan'])
     output_file = tmp_path / "output.dcm"
@@ -40,9 +41,25 @@ def test_rescale(caplog, tmp_path):
 
     caplog.set_level(logging.INFO, logger="dicomfix.dicomutil")
 
-    dicomfix.main.main([fn, '-rf=2.0',  '-o', str(output_file)])
+    # Run the rescale command
+    dicomfix.main.main([fn, '-rf=2.0', '-o', str(output_file)])
 
-    # Look for a single logged line containing all three tokens
+    # Run the inspect command on the output file and capture the output
+    result = subprocess.run(
+        ["python", "-m", "dicomfix.main", str(output_file), "-i"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    # Check the output for the expected values
+    output = result.stdout
+    assert "Beam Meterset            : 76867.92 MU" in output, \
+        f"Expected 'Beam Meterset            : 76867.92 MU' in output, got:\n{output}"
+    assert "Beam Dose                : 11.00 Gy(RBE)" in output, \
+        f"Expected 'Beam Dose                : 11.00 Gy(RBE)' in output, got:\n{output}"
+
+    # Optionally, check the log for the expected values
     found = any(
         ("Beam Dose" in rec.getMessage() and "5.50" in rec.getMessage() and "11.00" in rec.getMessage())
         for rec in caplog.records
