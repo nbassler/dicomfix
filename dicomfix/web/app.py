@@ -30,17 +30,16 @@ def update_inspect():
         st.session_state.dicom_info = st.session_state.dicom_util.inspect()
 
 
-# Load the DICOM file into the session state if uploaded
-if uploaded_file is not None and st.session_state.dicom_util is None:
-    # Load the DICOM file
+# Load the DICOM file into the session state if a new file is uploaded
+if uploaded_file is not None and uploaded_file.name != st.session_state.uploaded_filename:
     st.session_state.uploaded_filename = uploaded_file.name
-    with io.BytesIO(uploaded_file.read()) as f:
-        with open(st.session_state.uploaded_filename, "wb") as temp_file:
-            temp_file.write(f.read())
-        st.session_state.dicom_util = DicomUtil(st.session_state.uploaded_filename)
+    st.session_state.dicom_util = DicomUtil(io.BytesIO(uploaded_file.read()))
     update_inspect()
 
 # Sidebar options for modifying the DICOM file
+MACHINES = ["TR1", "TR2", "TR3", "TR4"]
+RANGE_SHIFTERS = ["None", "RS_2CM", "RS_5CM"]
+
 if st.session_state.dicom_util:
     st.sidebar.subheader("Tasks")
 
@@ -65,21 +64,26 @@ if st.session_state.dicom_util:
         st.session_state.dicom_util.set_range_shifter(st.session_state.range_shifter)
         update_inspect()
 
-    current_machine = st.session_state.dicom_util.dicom.IonBeamSequence[0].TreatmentMachineName
+    beam0 = st.session_state.dicom_util.dicom.IonBeamSequence[0]
+
+    current_machine = beam0.TreatmentMachineName
+    machine_default = st.session_state.get("treatment_machine", current_machine)
     st.sidebar.selectbox(
         "Select Treatment Machine",
-        options=["TR1", "TR2", "TR3", "TR4"],
-        index=["TR1", "TR2", "TR3", "TR4"].index(st.session_state.get("treatment_machine", current_machine)),
+        options=MACHINES,
+        index=MACHINES.index(machine_default) if machine_default in MACHINES else 0,
         key="treatment_machine",
         on_change=set_treatment_machine
     )
 
-    current_range_sifter = st.session_state.dicom_util.dicom.IonBeamSequence[0].RangeShifterID
+    rs_seq = beam0.RangeShifterSequence if hasattr(beam0, "RangeShifterSequence") else []
+    current_range_shifter = rs_seq[0].RangeShifterID if rs_seq else "None"
+    shifter_default = st.session_state.get("range_shifter", current_range_shifter)
     # Selectbox for Range Shifter and callback on selection change
     st.sidebar.selectbox(
         "Select Range Shifter",
-        options=["None", "RS_2CM", "RS_5CM"],
-        index=["None", "RS_2CM", "RS_5CM"].index(st.session_state.get("range_shifter", current_range_sifter)),
+        options=RANGE_SHIFTERS,
+        index=RANGE_SHIFTERS.index(shifter_default) if shifter_default in RANGE_SHIFTERS else 0,
         key="range_shifter",
         on_change=set_range_shifter
     )
@@ -96,7 +100,7 @@ if st.session_state.dicom_util:
     # Table position input fields
     st.sidebar.subheader("Set Table Position")
 
-    ic = st.session_state.dicom_util.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+    ic = beam0.IonControlPointSequence[0]
     # Use st.number_input for each coordinate (vertical, longitudinal, and lateral)
     st.sidebar.number_input("Vertical Position [cm]",
                             value=ic.TableTopVerticalPosition * 0.1,
