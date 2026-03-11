@@ -522,8 +522,6 @@ class DicomUtil:
             meterset_per_weight = beam_meterset / final_original_cumulative_weight
 
             for i, icp in enumerate(ib.IonControlPointSequence):
-                icp.ScanSpotPositionMap = icp.ScanSpotPositionMap * 5
-
                 # Rescale the weights and extend it by factor n, so cumulative weights stay constant
                 if icp.NumberOfScanSpotPositions == 1:
                     w = [icp.ScanSpotMetersetWeights]
@@ -801,7 +799,6 @@ class DicomUtil:
         output.append(f"Plan Label               : '{safe_get('RTPlanLabel')}'")
         output.append(f"Operator's Name          : '{safe_get('OperatorsName')}'")
         output.append(f"Reviewer Name            : '{safe_get('ReviewerName')}'")
-        output.append(f"Approval Status          : '{safe_get('ApprovalStatus')}'")
         output.append(f"Plan Intent              : '{safe_get('PlanIntent')}'")
 
         if hasattr(d, 'FractionGroupSequence'):
@@ -821,7 +818,7 @@ class DicomUtil:
                 output.append(HLINE)
                 output.append(f"    Beam Name                : '{ib.BeamName}'")
                 output.append(f"    Number of control points : {ib.NumberOfControlPoints}")
-                output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints / 2:2}")
+                output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints // 2:2}")
                 output.append(f"    Final Cumulative Meterset Weight : {ib.FinalCumulativeMetersetWeight:.2f}")
 
                 if hasattr(ib, 'IonControlPointSequence'):
