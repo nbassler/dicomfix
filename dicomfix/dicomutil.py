@@ -804,8 +804,6 @@ class DicomUtil:
         if hasattr(d, 'FractionGroupSequence'):
             fg = d.FractionGroupSequence[0]
             output.append(f"Number of fields         : {fg.NumberOfBeams}")
-            if hasattr(fg.ReferencedBeamSequence[0], 'BeamMeterset'):
-                output.append(f"Beam Meterset            : {fg.ReferencedBeamSequence[0].BeamMeterset:.2f} MU")
             if hasattr(fg.ReferencedBeamSequence[0], 'BeamDose'):
                 output.append(f"Beam Dose                : {fg.ReferencedBeamSequence[0].BeamDose:.2f} Gy(RBE)")
 
@@ -813,12 +811,14 @@ class DicomUtil:
             ib = d.IonBeamSequence[0]
             output.append(f"Treatment Machine Name   : '{ib.TreatmentMachineName}'")
             for i, ib in enumerate(d.IonBeamSequence):
+                beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[i].BeamMeterset
                 output.append(HLINE)
                 output.append(f"    Field #{i+1}")
                 output.append(HLINE)
                 output.append(f"    Beam Name                : '{ib.BeamName}'")
                 output.append(f"    Number of control points : {ib.NumberOfControlPoints}")
                 output.append(f"    Number of energy layers  : {ib.NumberOfControlPoints // 2:2}")
+                output.append(f"    Beam Meterset            : {beam_meterset:.2f} MU")
                 output.append(f"    Final Cumulative Meterset Weight : {ib.FinalCumulativeMetersetWeight:.2f}")
 
                 if hasattr(ib, 'IonControlPointSequence'):
@@ -832,18 +832,22 @@ class DicomUtil:
                     output.append(
                         f"            Table Top Lateral Position       : {icp.TableTopLateralPosition * 0.1:8.2f} cm")
 
+                    icps = ib.IonControlPointSequence
                     layer_count = 0
-                    for j, icp in enumerate(ib.IonControlPointSequence):
+                    for j, icp in enumerate(icps):
 
                         if (j + 1) % 2 == 0:
                             continue
 
                         layer_count += 1
+                        delta_weight = icps[j + 1].CumulativeMetersetWeight - icp.CumulativeMetersetWeight
+                        layer_mu = delta_weight / ib.FinalCumulativeMetersetWeight * beam_meterset
                         output.append(HLINE)
                         output.append(f"        Energy Layer # {layer_count:02}")
                         output.append(f"            Nominal Beam Energy              : {icp.NominalBeamEnergy:.2f} MeV")
                         output.append(f"            Number of Scan Spot Positions    : {icp.NumberOfScanSpotPositions}")
                         output.append(f"            Cumulative Meterset Weight       : {icp.CumulativeMetersetWeight:.2f}")
+                        output.append(f"            Layer MU                         : {layer_mu:.2f} MU")
 
         output.append(HLINE)
         # Return the concatenated output as a string
