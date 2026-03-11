@@ -156,9 +156,6 @@ class DicomExport:
                         logger.error(
                             f"Too many energy layers. Should be {number_of_energy_layers} / 2 but found {layer_count}.")
 
-                    filename = f"{output_file}_field{field_count+1:02d}_" + \
-                        f"layer_{layer_count:02d}__{nominal_beam_energy:06.2f}MeV.csv"
-
                     for n, wt in enumerate(icp.ScanSpotMetersetWeights):
                         mu = wt * meterset_per_weight
                         x = icp.ScanSpotPositionMap[n*2] * 0.1
