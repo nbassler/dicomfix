@@ -438,7 +438,7 @@ class TestRescaling:
         ratios = [a / (b * factor) for a, b in zip(after, before) if a > 1e-9 and b > 1e-12]
         assert ratios, "expected some spots to survive"
         assert max(ratios) - min(ratios) == pytest.approx(0.0, abs=1e-9)
-        assert max(ratios) >= 1.0  # survivors absorb the discarded MU, never lose it
+        assert min(ratios) >= 1.0  # survivors absorb the discarded MU, never lose it
 
     @pytest.mark.parametrize("factor", [0.5, 2.0, 7.3])
     def test_total_meterset_matches_beam_meterset(self, du, factor):

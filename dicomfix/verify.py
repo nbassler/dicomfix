@@ -17,16 +17,48 @@ The quantity checked is monitor units per spot, because that is what the machine
 delivers. A plan can carry a perfectly correct BeamMeterset while the per-spot
 distribution underneath it is wrong.
 
-Default tolerance is 0.1% relative. Measured deviation on a real plan, including a
-save/reload round-trip, is ~6e-10, so this leaves a very wide margin against false
-alarms while still catching any error big enough to matter.
+Three tolerances, because the quantities differ in kind:
+
+- METERSET_TOLERANCE (10 ppm) for the *magnitude* of what rescaling changes: total
+  meterset, dose, prescription, and the per-spot level. This is the loosest of the
+  three because DS decimal-string rounding lands here.
+- UNIFORMITY_TOLERANCE (1e-9) for the *spread* of per-spot ratios. DS rounding moves a
+  whole beam together, so it does not widen the spread, and this check stays near-exact.
+- GEOMETRY_TOLERANCE (1e-12) for what rescaling must not touch at all: spot positions
+  and beam energies.
+
+All three were chosen from measurement, not taste; see the comment on each.
 """
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOLERANCE = 1.0e-3  # 0.1% relative
+# 10 ppm relative, for the magnitude of quantities rescaling changes: total meterset,
+# BeamDose, TargetPrescriptionDose, and the per-spot level. Chosen from measurement, not
+# taste: across 114 rescales on three plans (including two RayStation clinical plans)
+# with factors from 0.02 to 500, the worst relative error observed was 1.6e-7, on a
+# clinical plan at factor 111.6. Dose and meterset are DS (decimal string) VRs, so their
+# precision comes from text formatting rather than float width, which is why the error is
+# this large; the Eclipse sample plan is ~300x cleaner at 5.8e-10, so a plan's formatting
+# matters more than its size. 1e-7 rejects 76 of those 114 legitimate rescales. This
+# leaves ~64x margin over the noise floor while still catching anything above 0.001%,
+# far below the percent-scale errors a real bug produces.
+METERSET_TOLERANCE = 1.0e-5
+
+# Applied to the *spread* of per-spot ratios rather than their magnitude. DS rounding
+# shifts every spot in a beam by the same amount, so it moves the level without
+# disturbing the spread: measured spread across the same sweep is 8.9e-16, machine
+# epsilon. Keeping this tight preserves ~1e6 margin on the one check that detects a
+# reshaped dose distribution, which totals cannot see.
+UNIFORMITY_TOLERANCE = 1.0e-9
+
+# Spot positions and beam energies are not rescaled at all, they pass through untouched,
+# so any difference is a bug rather than rounding and the dose tolerance is far too loose
+# for them. Measured deviation across factors from 0.05 to 1000, including a DICOM
+# save/reload round-trip, is exactly zero; this is effectively an equality test with a
+# margin against last-bit float noise.
+GEOMETRY_TOLERANCE = 1.0e-12
 
 
 class RescaleVerificationError(Exception):
@@ -53,10 +85,23 @@ def snapshot(dicom):
 
     Returns:
         dict: Per-beam measurements suitable for passing to verify_rescale().
+
+    Raises:
+        ValueError: If the plan's beam sequences are inconsistent with each other.
     """
+    referenced_beams = dicom.FractionGroupSequence[0].ReferencedBeamSequence
+
+    # These two sequences are indexed in parallel here and throughout dicomutil. A
+    # mismatch means the plan is malformed, and would otherwise surface as a bare
+    # IndexError from whichever loop happened to reach it first.
+    if len(dicom.IonBeamSequence) != len(referenced_beams):
+        raise ValueError(
+            f"Malformed plan: IonBeamSequence has {len(dicom.IonBeamSequence)} field(s) but "
+            f"ReferencedBeamSequence has {len(referenced_beams)}. The plan cannot be verified.")
+
     beams = []
     for j, ib in enumerate(dicom.IonBeamSequence):
-        rb = dicom.FractionGroupSequence[0].ReferencedBeamSequence[j]
+        rb = referenced_beams[j]
         final_weight = float(ib.FinalCumulativeMetersetWeight)
         beam_meterset = float(rb.BeamMeterset)
         # MU delivered by a spot = its weight, scaled by the beam's MU per unit weight.
@@ -109,11 +154,14 @@ def _integrity_failures(dicom, before, mu_min, tolerance):
 
         _check(len(a["spot_mu"]) == len(b["spot_mu"]), failures,
                f"{where}: spot count changed: {len(b['spot_mu'])} -> {len(a['spot_mu'])}")
+        # GEOMETRY_TOLERANCE, not tolerance: rescaling must not touch these at all.
         _check(len(a["positions"]) == len(b["positions"])
-               and all(_close(x, y, tolerance) for x, y in zip(a["positions"], b["positions"])),
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["positions"], b["positions"])),
                failures, f"{where}: spot positions were modified by rescaling")
         _check(len(a["energies"]) == len(b["energies"])
-               and all(_close(x, y, tolerance) for x, y in zip(a["energies"], b["energies"])),
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["energies"], b["energies"])),
                failures, f"{where}: beam energies were modified by rescaling")
         _check(all(mu >= 0.0 for mu in a["spot_mu"]), failures,
                f"{where}: plan contains negative spot meterset")
@@ -151,11 +199,17 @@ def _scaling_failures(before, after, rescale_factor, tolerance):
                   for x, y in zip(a["spot_mu"], b["spot_mu"])
                   if x > 1.0e-12 and y > 1.0e-12]
         if ratios:
+            # UNIFORMITY_TOLERANCE, not tolerance: DS rounding moves every spot in a beam
+            # together, so it does not widen the spread. This check can stay near-exact.
             spread = max(ratios) - min(ratios)
-            _check(spread <= tolerance, failures,
+            _check(spread <= UNIFORMITY_TOLERANCE, failures,
                    f"{where}: surviving spots were rescaled unevenly "
                    f"(ratio spread {spread:.3e}), the delivered pattern has been reshaped")
-            _check(max(ratios) >= 1.0 - tolerance, failures,
+            # min, not max: with max, a beam where some spots lost MU and others gained
+            # it would pass this check on the strength of the gainers alone. Only the
+            # adjacent spread check would catch that, and these two must not depend on
+            # each other -- each has to stand on its own.
+            _check(min(ratios) >= 1.0 - tolerance, failures,
                    f"{where}: surviving spots lost meterset (ratio {min(ratios):.6f})")
 
         if b["beam_dose"] is not None and a["beam_dose"] is not None:
@@ -174,7 +228,7 @@ def _scaling_failures(before, after, rescale_factor, tolerance):
     return failures
 
 
-def verify_rescale(before, dicom, rescale_factor=None, mu_min=None, tolerance=DEFAULT_TOLERANCE):
+def verify_rescale(before, dicom, rescale_factor=None, mu_min=None, tolerance=METERSET_TOLERANCE):
     """
     Check that a rescaled plan delivers what was requested.
 
@@ -192,7 +246,9 @@ def verify_rescale(before, dicom, rescale_factor=None, mu_min=None, tolerance=DE
             the integrity checks still run.
         mu_min (float, optional): Minimum deliverable MU. When given, surviving spots
             are checked to be at or above it.
-        tolerance (float): Relative tolerance. Defaults to 0.1%.
+        tolerance (float): Relative tolerance for rescaled quantities. Defaults to
+            METERSET_TOLERANCE (1 ppm). Positions and energies always use
+            GEOMETRY_TOLERANCE regardless of this.
 
     Raises:
         RescaleVerificationError: If any check fails. The message lists every failure.

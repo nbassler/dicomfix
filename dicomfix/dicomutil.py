@@ -162,7 +162,21 @@ class DicomUtil:
         logger.info(f"New plan intent: {d.PlanIntent}")
 
     def rescale_plan(self, config):
-        """Rescale the DICOM plan based on the provided settings."""
+        """
+        Rescale the DICOM plan based on the provided settings.
+
+        This is the entry point used by modify(), so it is where the CLI and the web UI
+        see rescaling failures surface.
+
+        Args:
+            config (Config): Parsed settings; the -rd, -rf, -rm and -w options are read.
+
+        Raises:
+            ValueError: For invalid or contradictory options, a non-positive rescale
+                factor, an unusable beam dose, or a malformed plan.
+            verify.RescaleVerificationError: If the independent check finds the rescaled
+                plan does not deliver what was requested. The plan must not be saved.
+        """
         layer_factors = None
         if config.weights:
             # Read the weights from the CSV file
@@ -236,6 +250,8 @@ class DicomUtil:
 
         Raises:
             ValueError: if the plan has more than one field, or has no usable beam dose.
+            verify.RescaleVerificationError: propagated from apply_rescale_factor() if the
+                independent check finds the result does not match what was requested.
         """
         d = self.dicom
         rbs = d.FractionGroupSequence[0].ReferencedBeamSequence
@@ -291,8 +307,14 @@ class DicomUtil:
                 the number of real energy layers in the plan.
 
         Raises:
-            ValueError: If the rescale factor is not positive, or if the number of layer
-                factors does not match the number of energy layers.
+            ValueError: If the rescale factor is not positive, if any layer factor is
+                negative, or if the number of layer factors does not match the number of
+                energy layers. Also raised for a malformed plan whose IonBeamSequence and
+                ReferencedBeamSequence disagree in length.
+            verify.RescaleVerificationError: If the independent check at the end of this
+                method finds that the rescaled plan does not deliver what was requested.
+                The plan is left modified but must not be used; callers should report the
+                message, which lists every failed check.
         """
         d = self.dicom
 
