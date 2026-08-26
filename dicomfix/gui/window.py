@@ -18,7 +18,7 @@ import sys
 
 from PyQt6 import uic
 from PyQt6.QtGui import QKeySequence
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from dicomfix.__version__ import __version__
 from dicomfix.config import Config
@@ -48,7 +48,7 @@ _EDIT_WIDGETS = (
     "doubleSpinBox_nozzle_position", "doubleSpinBox_rescale_dose",
     "doubleSpinBox_rescale_factor", "spinBox_duplicate_fields",
     "pushButton_snout_retract", "pushButton_copy_to_all_fields",
-    "pushButton_copy_command", "pushButton_reset", "pushButton_export",
+    "pushButton_reset", "pushButton_export",
 )
 
 APP_NAME = "DicomFix"
@@ -139,8 +139,6 @@ class MainWindow(QMainWindow):
         self.actionOpen.setShortcut(QKeySequence.StandardKey.Open)
         self.actionAbout.triggered.connect(self.on_about)
         self.pushButton_export.setShortcut(QKeySequence.StandardKey.Save)
-        self.pushButton_copy_command.setShortcut(QKeySequence.StandardKey.Copy)
-        self.pushButton_copy_command.clicked.connect(self.on_copy_command)
         self.pushButton_reset.clicked.connect(self.on_reset)
         self.comboBox_field.currentIndexChanged.connect(self.on_field_changed)
         self.pushButton_snout_retract.clicked.connect(self.on_retract_snout)
@@ -173,14 +171,22 @@ class MainWindow(QMainWindow):
 
         Called after _set_editing_enabled(True), which would otherwise re-enable them.
         """
-        # There is no un-approve in DicomUtil, so on an already-approved plan the
-        # checkbox is shown ticked and disabled rather than silently ignoring clicks.
-        already = self.plan is not None and self.plan.approved
-        self.checkBox_approve.setChecked(already or self.checkBox_approve.isChecked())
-        self.checkBox_approve.setEnabled(not already)
-        self.checkBox_approve.setToolTip(
-            "This plan is already approved; dicomfix cannot un-approve it." if already
-            else "Set the plan's approval status to APPROVED.")
+        # Both of these operations are one-way: DicomUtil can set APPROVED and CURATIVE
+        # but has nothing to undo them. Where the plan is already in that state the box
+        # is shown ticked and disabled, rather than silently ignoring clicks.
+        for widget_name, already, done, todo in (
+            ("checkBox_approve", self.plan is not None and self.plan.approved,
+             "This plan is already approved; dicomfix cannot un-approve it.",
+             "Set the plan's approval status to APPROVED."),
+            ("checkBox_curative_intent",
+             self.plan is not None and self.plan.curative_intent,
+             "This plan's intent is already CURATIVE; dicomfix cannot unset it.",
+             "Set the plan intent to CURATIVE."),
+        ):
+            box = getattr(self, widget_name)
+            box.setChecked(already or box.isChecked())
+            box.setEnabled(not already)
+            box.setToolTip(done if already else todo)
 
     # -- loading -------------------------------------------------------------
 
@@ -384,14 +390,6 @@ class MainWindow(QMainWindow):
     def on_retract_snout(self):
         """Snap the snout to its fully retracted position, the common case for QA setups."""
         self.doubleSpinBox_nozzle_position.setValue(SNOUT_RETRACTED)
-
-    def on_copy_command(self):
-        """Put the equivalent command on the clipboard, for pasting into a script."""
-        if self.plan is None:
-            return
-        command = self.settings.to_command(self.plan.filename, "output.dcm")
-        QApplication.clipboard().setText(command)
-        self.statusbar.showMessage(f"Copied: {command}", 6000)
 
     def on_reset(self):
         """Discard queued edits and put every control back to the plan's own values."""

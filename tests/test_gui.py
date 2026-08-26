@@ -342,24 +342,6 @@ class TestTablePositionWarning:
         d.save_as(str(path))
         return str(path)
 
-    def test_widgets_are_grouped_by_scope(self, window):
-        """The field selector must sit only with values dicomfix sets per field.
-
-        Gantry is the only one. Putting table position or snout beside the field
-        selector implies they are per field, when -tp and -sp write to every field.
-        """
-        def names(group):
-            return {c.objectName() for c in getattr(window, group).findChildren(object)
-                    if c.objectName().startswith(("doubleSpin", "combo", "push"))}
-
-        per_field, plan_wide = names("groupBox"), names("groupBox_3")
-        assert {"comboBox_field", "doubleSpinBox_gantry"} <= per_field
-        for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
-                     "doubleSpinBox_table_lateral", "doubleSpinBox_nozzle_position",
-                     "comboBox_treatment_machine"):
-            assert name in plan_wide, f"{name} applies to all fields, not per field"
-            assert name not in per_field
-
     def test_difference_is_detected(self, window, differing_tables):
         window.load_plan(differing_tables)
         assert window.plan.table_positions_differ is True
@@ -405,13 +387,9 @@ class TestConveniences:
         assert window.pushButton_export.shortcut() == QKeySequence(
             QKeySequence.StandardKey.Save)
 
-    def test_copy_command_puts_it_on_the_clipboard(self, window, qapp):
-        window.load_plan(str(PLAN_FILE))
-        window.doubleSpinBox_rescale_factor.setValue(2.0)
-        window.pushButton_copy_command.click()
-        text = qapp.clipboard().text()
-        assert text.startswith("dicomfix ")
-        assert "-rf=2" in text
+    def test_copy_command_button_is_gone(self, window):
+        """Removed as noise: the GUI's users are not running the CLI."""
+        assert not hasattr(window, "pushButton_copy_command")
 
     def test_reset_discards_every_queued_edit(self, window):
         window.load_plan(str(PLAN_FILE))
@@ -448,6 +426,30 @@ class TestConveniences:
         assert window.checkBox_approve.isChecked()
         assert not window.checkBox_approve.isEnabled()
         assert "cannot un-approve" in window.checkBox_approve.toolTip()
+
+    def test_curative_plan_shows_a_ticked_disabled_checkbox(self, window):
+        """set_intent_to_curative() is one-way too, so the box must not pretend.
+
+        PLAN_FILE is already CURATIVE, as it is already APPROVED.
+        """
+        window.load_plan(str(PLAN_FILE))
+        assert window.plan.curative_intent
+        assert window.checkBox_curative_intent.isChecked()
+        assert not window.checkBox_curative_intent.isEnabled()
+        assert "cannot unset" in window.checkBox_curative_intent.toolTip()
+
+    def test_non_curative_plan_leaves_the_box_editable(self, window, tmp_path):
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        d.PlanIntent = "PALLIATIVE"
+        d.ApprovalStatus = "UNAPPROVED"
+        p = tmp_path / "palliative.dcm"
+        d.save_as(str(p))
+        window.load_plan(str(p))
+        assert not window.plan.curative_intent
+        assert window.checkBox_curative_intent.isEnabled()
+        assert not window.checkBox_curative_intent.isChecked()
+        assert window.checkBox_approve.isEnabled()
 
     def test_treatment_machine_has_a_label(self, window):
         assert window.label_treatment_machine.text() == "Treatment Machine"

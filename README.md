@@ -116,15 +116,19 @@ so a plan exported from the GUI is byte-for-byte identical to the same plan prod
 command line — copy the command into a script when you need the operation to be
 reproducible.
 
-Controls are grouped by what they affect. **Plan (applies to all fields)** holds everything
-dicomfix writes to every field at once — table position, snout, treatment machine, range
-shifter. **Per field** holds the field selector and the gantry angle, which is the only
-value dicomfix sets per field; `Copy to all fields` gives every field the gantry shown.
+**Plan** covers the whole plan: approval, intent, date and treatment machine. **Field**
+holds the geometry — table position and nozzle, then a divider, then the field selector,
+gantry and couch, with `Copy to all fields` to give every field the gantry shown.
+**Wizards** covers rescaling, range shifter, field duplication and the RayStation and TR4
+fixes.
 
-Note that DICOM stores the table position per field even though dicomfix writes one value
-to all of them. If a plan's fields have different table positions, the GUI warns before
-exporting, because the others would be overwritten.
+Two things behave differently from how they may look. Gantry is the only value dicomfix
+writes per field; table position, nozzle, treatment machine and range shifter are written
+to *every* field, even though DICOM stores them per field. If a plan's fields have
+different table positions, the GUI warns before exporting, because the others would be
+overwritten.
 
-The couch angle is displayed but greyed out: dicomfix has no way to write
-`PatientSupportAngle`. `Retract Nozzle` sets the snout to its fully retracted position,
-42.1 cm.
+Controls dicomfix cannot operate are greyed out rather than left inert: the couch angle
+(there is no way to write `PatientSupportAngle`), and `Approve` and `Curative Intent` on
+plans already in that state, since neither can be undone. `Retract Nozzle` sets the snout
+to its fully retracted position, 42.1 cm.
