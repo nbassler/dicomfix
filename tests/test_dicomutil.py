@@ -152,24 +152,29 @@ class TestRangeShifter:
         with pytest.raises(ValueError):
             du.set_range_shifter("RS_3CM")
 
-    def test_remove_range_shifter(self, du):
-        du.set_range_shifter("RS_2CM")  # add first
-        du.set_range_shifter(None)      # then remove
+    # None, the "NONE" sentinel and the web UI's plain "None" string must all remove it.
+    @pytest.mark.parametrize("removal_value", [None, "NONE", "None", "none"])
+    def test_remove_range_shifter(self, du, removal_value):
+        du.set_range_shifter("RS_2CM")       # add first
+        du.set_range_shifter(removal_value)  # then remove
         for ib in du.dicom.IonBeamSequence:
-            # Either attribute is gone or count is 0
-            assert not hasattr(ib, "RangeShifterSequence") or ib.NumberOfRangeShifters == 0
+            assert not hasattr(ib, "RangeShifterSequence")
+            assert ib.NumberOfRangeShifters == 0
+            # No control point may keep a reference to the removed range shifter
+            for ics in ib.IonControlPointSequence:
+                assert not hasattr(ics, "RangeShifterSettingsSequence")
 
     def test_rs2cm_water_equivalent_thickness(self, du):
         du.set_range_shifter("RS_2CM")
         for ib in du.dicom.IonBeamSequence:
             rsss = ib.IonControlPointSequence[0].RangeShifterSettingsSequence[0]
-            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(57.0)
+            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(22.8)
 
     def test_rs5cm_water_equivalent_thickness(self, du):
         du.set_range_shifter("RS_5CM")
         for ib in du.dicom.IonBeamSequence:
             rsss = ib.IonControlPointSequence[0].RangeShifterSettingsSequence[0]
-            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(22.8)
+            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(57.0)
 
 
 # ---------------------------------------------------------------------------

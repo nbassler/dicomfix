@@ -6,6 +6,7 @@ Tests cover the static/instance parsing methods without requiring a DICOM file.
 import argparse
 import pytest
 from dicomfix.config import Config
+from dicomfix.dicomutil import RANGE_SHIFTER_NONE
 
 
 def make_namespace(**kwargs):
@@ -133,9 +134,12 @@ class TestParseRangeShifter:
         config = Config(make_namespace(range_shifter="RS_5CM"))
         assert config.range_shifter == "RS_5CM"
 
-    def test_none_string_returns_none(self):
+    # These two must NOT be equal: an explicit "none" asks for removal, while an
+    # absent option asks for nothing at all. Collapsing them was issue #43.
+    def test_none_string_returns_sentinel(self):
         config = Config(make_namespace(range_shifter="none"))
-        assert config.range_shifter is None
+        assert config.range_shifter == RANGE_SHIFTER_NONE
+        assert config.range_shifter  # must be truthy, or modify() skips it
 
     def test_none_value_returns_none(self):
         config = Config(make_namespace(range_shifter=None))

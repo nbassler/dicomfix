@@ -22,6 +22,12 @@ DEFAULT_SAVE_FILENAME = "output.dcm"
 MU_MIN = 1.0  # at least this many MU in a single spot
 HLINE = 72 * '-'
 
+# Sentinel meaning "the user explicitly asked to remove the range shifter", as opposed
+# to None which means "the user did not ask for anything". See Config.parse_range_shifter.
+RANGE_SHIFTER_NONE = "NONE"
+# Water equivalent thickness [mm] of the available range shifters.
+RANGE_SHIFTER_WET = {"RS_2CM": 22.8, "RS_5CM": 57.0}
+
 
 class DicomUtil:
     """
@@ -475,20 +481,28 @@ class DicomUtil:
 
         Args:
             range_shifter (str): The new range shifter name.
-            Can be None, "RS_2CM" or "RS_5CM".
+            Can be None, "None", "RS_2CM" or "RS_5CM".
 
         """
         d = self.dicom
 
-        if range_shifter is None:
-            logger.info("Removing Range Shifter Sequence from all fields.")
+        # None (the API default), the "NONE" sentinel from the command line and the
+        # plain "None" string from the web selectbox all mean "remove it".
+        if range_shifter is None or str(range_shifter).upper() in (RANGE_SHIFTER_NONE, ""):
+            n = 0
             for ibs in d.IonBeamSequence:
                 if hasattr(ibs, "RangeShifterSequence"):
                     del ibs.RangeShifterSequence
-                    ibs.NumberOfRangeShifters = 0
+                    n += 1
+                ibs.NumberOfRangeShifters = 0
+                for ics in ibs.IonControlPointSequence:
+                    # Leaving these behind would reference a range shifter which no longer exists.
+                    if hasattr(ics, "RangeShifterSettingsSequence"):
+                        del ics.RangeShifterSettingsSequence
+            logger.info(f"Range Shifter removed from {n} field(s).")
             return
 
-        if range_shifter not in ["RS_2CM", "RS_5CM"]:
+        if range_shifter not in RANGE_SHIFTER_WET:
             raise ValueError(f"Range shifter must be 'RS_2CM', 'RS_5CM' or None, got '{range_shifter}'.")
 
         for ibs in d.IonBeamSequence:
@@ -505,8 +519,7 @@ class DicomUtil:
                 rsss = ics.RangeShifterSettingsSequence[0]
                 rsss.RangeShifterSetting = 'IN'
                 rsss.IsocenterToRangeShifterDistance = 98.0
-                # TODO: define as dict somwhere
-                rsss.RangeShifterWaterEquivalentThickness = 57.0 if range_shifter == "RS_2CM" else 22.8
+                rsss.RangeShifterWaterEquivalentThickness = RANGE_SHIFTER_WET[range_shifter]
                 rsss.ReferencedRangeShifterNumber = 1
         logger.info(f"Range Shifter set to '{range_shifter}' for all fields.")
 
