@@ -1,6 +1,8 @@
 # File: model.py
 # Purpose: the GUI's data model. Holds the plan being viewed and the edits queued against it.
 
+from __future__ import annotations
+
 import logging
 
 from dicomfix.__version__ import __version__
@@ -191,14 +193,17 @@ class EditSettings:
         self.fix_raystation = False
         self.wizard_tr4 = False
 
-        self.treatment_machine = None       # "TR1".."TR4"
-        self.gantry_angles = None           # list of float, one per field
-        self.table_position = None          # (vertical, longitudinal, lateral) in cm
-        self.snout_position = None          # cm
-        self.range_shifter = None           # "None", "RS2", "RS5"
-        self.rescale_dose = None            # Gy(RBE)
-        self.rescale_factor = None
-        self.duplicate_fields = None        # int
+        # Annotated because every one of these starts as None: without the annotation a
+        # type checker infers the attribute's type *as* None and rejects every later
+        # assignment.
+        self.treatment_machine: str | None = None            # "TR1".."TR4"
+        self.gantry_angles: list[float] | None = None        # one per field
+        self.table_position: tuple[float, float, float] | None = None   # cm
+        self.snout_position: float | None = None             # cm
+        self.range_shifter: str | None = None                # "None", "RS2", "RS5"
+        self.rescale_dose: float | None = None               # Gy(RBE)
+        self.rescale_factor: float | None = None
+        self.duplicate_fields: int | None = None
 
     def clear(self):
         """Drop every queued edit, keeping the field count."""

@@ -12,13 +12,27 @@ DicomUtil.modify() chain the CLI uses, so the GUI cannot behave differently from
 and the equivalent command can be shown to the user for provenance.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
 
 from PyQt6 import uic
-from PyQt6.QtGui import QKeySequence
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSpinBox,
+    QStatusBar,
+)
 
 from dicomfix.__version__ import __version__
 from dicomfix.config import Config
@@ -71,6 +85,43 @@ def resource_path(name):
 class MainWindow(QMainWindow):
     """The whole GUI. Widgets are loaded onto self by uic, so they are plain attributes."""
 
+    # uic.loadUi() attaches these at runtime, which a static type checker cannot see.
+    # Annotating them without assigning gives Pylance the contract and working
+    # completion, while leaving loadUi free to populate them. It also states, in one
+    # place, exactly which widgets main_window.ui has to provide -- the same contract
+    # tests/test_gui.py asserts at runtime.
+    actionAbout: QAction
+    actionOpen: QAction
+    checkBox_anonymize: QCheckBox
+    checkBox_approve: QCheckBox
+    checkBox_curative_intent: QCheckBox
+    checkBox_fix_raystation: QCheckBox
+    checkBox_fix_tr4: QCheckBox
+    checkBox_newdatetime: QCheckBox
+    checkBox_reviewername: QCheckBox
+    comboBox_field: QComboBox
+    comboBox_range_shifter: QComboBox
+    comboBox_treatment_machine: QComboBox
+    doubleSpinBox_couch: QDoubleSpinBox
+    doubleSpinBox_gantry: QDoubleSpinBox
+    doubleSpinBox_nozzle_position: QDoubleSpinBox
+    doubleSpinBox_rescale_dose: QDoubleSpinBox
+    doubleSpinBox_rescale_factor: QDoubleSpinBox
+    doubleSpinBox_table_lateral: QDoubleSpinBox
+    doubleSpinBox_table_longitudinal: QDoubleSpinBox
+    doubleSpinBox_table_vertical: QDoubleSpinBox
+    label_5: QLabel
+    label_treatment_machine: QLabel
+    plainTextEdit_inspect: QPlainTextEdit
+    pushButton_copy_to_all_fields: QPushButton
+    pushButton_export: QPushButton
+    pushButton_reset: QPushButton
+    pushButton_snout_retract: QPushButton
+    spinBox_duplicate_fields: QSpinBox
+    statusbar: QStatusBar
+
+    plan: PlanModel | None
+
     def __init__(self):
         super().__init__()
         uic.loadUi(resource_path("main_window.ui"), self)
@@ -88,15 +139,24 @@ class MainWindow(QMainWindow):
 
     # -- drag and drop -------------------------------------------------------
 
-    def dragEnterEvent(self, event):
+    # The parameter is named a0 to match QWidget's signature; Qt's own naming, not ours.
+    def dragEnterEvent(self, a0):
         """Accept a single local file; what it contains is checked on drop."""
-        mime = event.mimeData()
-        if mime.hasUrls() and len(mime.urls()) == 1 and mime.urls()[0].isLocalFile():
-            event.acceptProposedAction()
+        if a0 is None:
+            return
+        mime = a0.mimeData()
+        if mime and mime.hasUrls() and len(mime.urls()) == 1 and mime.urls()[0].isLocalFile():
+            a0.acceptProposedAction()
 
-    def dropEvent(self, event):
-        path = event.mimeData().urls()[0].toLocalFile()
-        event.acceptProposedAction()
+    def dropEvent(self, a0):
+        """Open a dropped plan, refusing anything that is not an ion RTPLAN."""
+        if a0 is None:
+            return
+        mime = a0.mimeData()
+        if mime is None or not mime.hasUrls():
+            return
+        path = mime.urls()[0].toLocalFile()
+        a0.acceptProposedAction()
         problem = describe_unsupported(path)
         if problem:
             QMessageBox.critical(self, "Cannot open this file",
@@ -218,6 +278,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_inspect(self):
         """Show the plan summary, the same text the CLI's -i prints."""
+        assert self.plan is not None, "a plan must be loaded"
         try:
             self.plainTextEdit_inspect.setPlainText(self.plan.inspect())
         except Exception as exc:
@@ -225,6 +286,7 @@ class MainWindow(QMainWindow):
 
     def _populate(self):
         """Fill every widget from the loaded plan, without queueing any edit."""
+        assert self.plan is not None, "a plan must be loaded"
         self._loading = True
         try:
             self.comboBox_field.clear()
@@ -262,6 +324,7 @@ class MainWindow(QMainWindow):
 
     def _show_field(self, index):
         """Show one field. Gantry is per field; table and snout are plan-wide."""
+        assert self.plan is not None, "a plan must be loaded"
         field = self.plan.fields[index]
         # Two things the table boxes have to be honest about, despite sitting in the
         # per-field panel: RayStation leaves them empty (issue #37), and dicomfix's -tp
@@ -457,6 +520,9 @@ class MainWindow(QMainWindow):
         Returns:
             bool: True if the plan was written.
         """
+        if self.plan is None:
+            return False
+
         # Setting the table replaces it on every field. If they currently differ, that
         # discards information, so ask rather than doing it quietly.
         if self.settings.table_position is not None and self.plan.table_positions_differ:
