@@ -17,6 +17,40 @@ from dicomfix.dicomutil import MU_MIN, DicomUtil
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
 
+def spot_metersets(du):
+    """MU actually delivered per spot, in plan order.
+
+    MU = weight * BeamMeterset / FinalCumulativeMetersetWeight. This is what the machine
+    delivers, so it is the quantity rescaling has to get right; BeamMeterset alone can be
+    correct while the per-spot distribution is wrong.
+    """
+    d = du.dicom
+    out = []
+    for j, ib in enumerate(d.IonBeamSequence):
+        beam_meterset = float(d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset)
+        meterset_per_weight = beam_meterset / float(ib.FinalCumulativeMetersetWeight)
+        for icp in ib.IonControlPointSequence:
+            w = icp.ScanSpotMetersetWeights
+            w = [w] if icp.NumberOfScanSpotPositions == 1 else list(w)
+            out += [float(x) * meterset_per_weight for x in w]
+    return out
+
+
+def spot_positions(du):
+    """Every spot position in plan order. Rescaling must never move a spot."""
+    out = []
+    for ib in du.dicom.IonBeamSequence:
+        for icp in ib.IonControlPointSequence:
+            out += [float(x) for x in icp.ScanSpotPositionMap]
+    return out
+
+
+def beam_energies(du):
+    """Every control point energy. Rescaling must never change an energy."""
+    return [float(icp.NominalBeamEnergy)
+            for ib in du.dicom.IonBeamSequence for icp in ib.IonControlPointSequence]
+
+
 def make_two_field(du):
     """Turn the single-field sample plan into a two-field one.
 
@@ -328,6 +362,190 @@ class TestRescaling:
         du.apply_rescale_factor(3.0)
         new = float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
         assert new == pytest.approx(orig * 6.0, rel=1e-4)
+
+    def test_prescription_dose_follows_beam_dose(self, du):
+        """A plan whose prescription contradicts its beam dose is internally inconsistent."""
+        # PLAN_FILE has no TargetPrescriptionDose, so give it one matching the beam dose.
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        du.dicom.DoseReferenceSequence[0].TargetPrescriptionDose = float(rb.BeamDose)
+        du.rescale_dose(10.0)
+        assert float(du.dicom.DoseReferenceSequence[0].TargetPrescriptionDose) == pytest.approx(
+            float(rb.BeamDose), rel=1e-4)
+
+    def test_prescription_dose_follows_rescale_factor(self, du):
+        """-rf and -rm go through apply_rescale_factor too, so they must scale it as well."""
+        dr = du.dicom.DoseReferenceSequence[0]
+        dr.TargetPrescriptionDose = 5.5
+        du.apply_rescale_factor(2.0)
+        assert float(dr.TargetPrescriptionDose) == pytest.approx(11.0, rel=1e-4)
+
+    def test_dose_constraints_are_not_rescaled(self, du):
+        """Constraints are limits, not delivered dose, so they must be left alone."""
+        dr = du.dicom.DoseReferenceSequence[0]
+        original = float(dr.DeliveryMaximumDose)
+        du.apply_rescale_factor(2.0)
+        assert float(dr.DeliveryMaximumDose) == pytest.approx(original)
+
+    def test_missing_prescription_dose_is_harmless(self, du):
+        """PLAN_FILE has no TargetPrescriptionDose; rescaling must not invent one."""
+        du.apply_rescale_factor(2.0)
+        assert "TargetPrescriptionDose" not in du.dicom.DoseReferenceSequence[0]
+
+    # --- delivery-critical invariants -----------------------------------------
+    # -rf is the option used most in practice. These guard what actually reaches the
+    # machine, not just the summary tags.
+
+    @pytest.mark.parametrize("factor", [0.5, 1.5, 2.0, 10.0, 100.0])
+    def test_every_spot_meterset_scales_by_factor(self, du, factor):
+        """The core delivery invariant: each spot's MU scales by exactly the factor.
+
+        Factors are chosen so no spot falls below MU_MIN; spot elimination is covered
+        separately by test_surviving_spots_scale_exactly_when_spots_eliminated.
+        """
+        before = spot_metersets(du)
+        du.apply_rescale_factor(factor)
+        after = spot_metersets(du)
+        assert du.spots_discarded == 0, "factor unexpectedly triggered MU_MIN elimination"
+        assert len(after) == len(before)
+        for got, want in zip(after, [b * factor for b in before]):
+            assert got == pytest.approx(want, rel=1e-6, abs=1e-9)
+
+    # When spots fall below MU_MIN they are zeroed, and their MU is redistributed over the
+    # survivors so the plan total is preserved. The two tests below pin that behaviour down:
+    # the total is exact, and the redistribution is uniform (it never distorts the pattern
+    # among survivors). Note this means surviving spots deliver MORE than the requested
+    # factor -- +1.0% at factor 0.1, +4.1% at 0.05, +72.8% at 0.02 on the sample plan.
+
+    @pytest.mark.parametrize("factor", [0.05, 0.1, 0.3])
+    def test_total_meterset_preserved_when_spots_eliminated(self, du, factor):
+        """Plan total MU still matches the requested factor exactly, despite discards."""
+        before = sum(spot_metersets(du))
+        du.apply_rescale_factor(factor)
+        assert du.spots_discarded > 0, "factor was expected to eliminate spots"
+        assert sum(spot_metersets(du)) == pytest.approx(before * factor, rel=1e-6)
+
+    @pytest.mark.parametrize("factor", [0.05, 0.1, 0.3])
+    def test_redistribution_is_uniform_across_survivors(self, du, factor):
+        """Discarded MU is spread evenly, so the pattern among survivors is undistorted.
+
+        Every surviving spot must be off the requested scaling by the *same* ratio. A
+        varying ratio would mean the delivered distribution had been reshaped.
+        """
+        before = spot_metersets(du)
+        du.apply_rescale_factor(factor)
+        after = spot_metersets(du)
+        assert len(after) == len(before)
+        ratios = [a / (b * factor) for a, b in zip(after, before) if a > 1e-9 and b > 1e-12]
+        assert ratios, "expected some spots to survive"
+        assert max(ratios) - min(ratios) == pytest.approx(0.0, abs=1e-9)
+        assert max(ratios) >= 1.0  # survivors absorb the discarded MU, never lose it
+
+    @pytest.mark.parametrize("factor", [0.5, 2.0, 7.3])
+    def test_total_meterset_matches_beam_meterset(self, du, factor):
+        """Sum of per-spot MU must equal the declared BeamMeterset, or the plan lies."""
+        du.apply_rescale_factor(factor)
+        declared = float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+        assert sum(spot_metersets(du)) == pytest.approx(declared, rel=1e-6)
+
+    @pytest.mark.parametrize("factor", [0.5, 2.0, 3.7])
+    def test_relative_spot_pattern_is_preserved(self, du, factor):
+        """Rescaling changes magnitude, never the shape of the delivered pattern."""
+        before = spot_metersets(du)
+        du.apply_rescale_factor(factor)
+        after = spot_metersets(du)
+        total_b, total_a = sum(before), sum(after)
+        for got, want in zip([a / total_a for a in after], [b / total_b for b in before]):
+            assert got == pytest.approx(want, rel=1e-6, abs=1e-12)
+
+    @pytest.mark.parametrize("factor", [0.5, 2.0])
+    def test_rescale_does_not_move_spots(self, du, factor):
+        before = spot_positions(du)
+        du.apply_rescale_factor(factor)
+        assert spot_positions(du) == pytest.approx(before)
+
+    @pytest.mark.parametrize("factor", [0.5, 2.0])
+    def test_rescale_does_not_change_energies(self, du, factor):
+        before = beam_energies(du)
+        du.apply_rescale_factor(factor)
+        assert beam_energies(du) == pytest.approx(before)
+
+    def test_rescale_round_trip_restores_original(self, du):
+        """f then 1/f must return the plan to where it started."""
+        before = spot_metersets(du)
+        du.apply_rescale_factor(4.0)
+        du.apply_rescale_factor(1.0 / 4.0)
+        assert spot_metersets(du) == pytest.approx(before, rel=1e-6)
+
+    def test_rescale_by_one_is_a_no_op(self, du):
+        before = spot_metersets(du)
+        dose_before = float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose)
+        du.apply_rescale_factor(1.0)
+        assert spot_metersets(du) == pytest.approx(before, rel=1e-9)
+        assert float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose) == \
+            pytest.approx(dose_before)
+
+    @pytest.mark.parametrize("factor", [0.5, 2.0, 3.0])
+    def test_dose_per_mu_is_invariant(self, du, factor):
+        """Gy(RBE) per MU is a property of the beamline, not of the scaling."""
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        before = float(rb.BeamDose) / float(rb.BeamMeterset)
+        du.apply_rescale_factor(factor)
+        assert float(rb.BeamDose) / float(rb.BeamMeterset) == pytest.approx(before, rel=1e-6)
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0, -2.5])
+    def test_non_positive_factor_is_rejected(self, du, bad):
+        """A zero or negative factor would write a plan with no deliverable MU."""
+        with pytest.raises(ValueError, match="must be positive"):
+            du.apply_rescale_factor(bad)
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0])
+    def test_non_positive_factor_leaves_plan_untouched(self, du, bad):
+        before = spot_metersets(du)
+        with pytest.raises(ValueError):
+            du.apply_rescale_factor(bad)
+        assert spot_metersets(du) == pytest.approx(before)
+
+    def test_negative_layer_factor_is_rejected(self, du):
+        n_layers = int(du.dicom.IonBeamSequence[0].NumberOfControlPoints / 2)
+        with pytest.raises(ValueError, match="must not be negative"):
+            du.apply_rescale_factor(1.0, layer_factors=[-1.0] * n_layers)
+
+    def test_no_surviving_spot_below_mu_min(self, du):
+        """Spots too small to deliver must be zeroed, never left as undeliverable dust."""
+        du.apply_rescale_factor(0.01)
+        for mu in spot_metersets(du):
+            assert mu == pytest.approx(0.0, abs=1e-9) or mu >= MU_MIN - 1e-6
+
+    def test_discarded_spot_count_is_reported(self, du):
+        assert du.spots_discarded == 0
+        du.apply_rescale_factor(0.01)
+        assert du.spots_discarded > 0
+
+    def test_final_cumulative_weight_matches_last_control_point(self, du):
+        """Internal bookkeeping must stay consistent or the plan is malformed."""
+        du.apply_rescale_factor(2.0)
+        for ib in du.dicom.IonBeamSequence:
+            last = ib.IonControlPointSequence[-1].CumulativeMetersetWeight
+            assert float(last) == pytest.approx(float(ib.FinalCumulativeMetersetWeight), rel=1e-6)
+
+    def test_cumulative_dose_coefficient_runs_zero_to_one(self, du):
+        """CumulativeDoseReferenceCoefficient must rise monotonically from 0 to 1."""
+        du.apply_rescale_factor(2.0)
+        for ib in du.dicom.IonBeamSequence:
+            coeffs = [float(icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient)
+                      for icp in ib.IonControlPointSequence
+                      if "ReferencedDoseReferenceSequence" in icp]
+            assert coeffs[0] == pytest.approx(0.0, abs=1e-9)
+            assert coeffs[-1] == pytest.approx(1.0, rel=1e-6)
+            assert coeffs == sorted(coeffs)
+
+    def test_rescale_dose_and_factor_agree(self, du):
+        """-rd X must be exactly equivalent to -rf (X / dose_in_plan)."""
+        du_a = DicomUtil(str(PLAN_FILE))
+        current = float(du_a.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose)
+        du_a.rescale_dose(10.0)
+        du.apply_rescale_factor(10.0 / current)
+        assert spot_metersets(du_a) == pytest.approx(spot_metersets(du), rel=1e-9)
 
     def test_rescale_dose_reports_dose_factor_and_meterset(self, du, caplog):
         """The found dose, request, factor and meterset must be reported without -v."""
