@@ -44,6 +44,11 @@ Documentation = "https://nbassler.github.io/dicomfix"  # for docs later
 [project.scripts]
 dicomfix = "dicomfix.main:main"
 
+[project.gui-scripts]
+# gui-scripts rather than scripts: on Windows this builds a launcher that does not
+# open a console window alongside the GUI.
+dicomfix-gui = "dicomfix.gui.main:main"
+
 [tool.setuptools.packages.find]
 include = ["dicomfix*"]
 
@@ -53,9 +58,9 @@ include = ["dicomfix*"]
 [project.optional-dependencies]
 gui = ["pyqt6>=6.5"]
 web = ["streamlit>=1.12.0"]
-# dev must include web: tests/test_web_app.py needs streamlit to run.
-# gui is deliberately left out until the Qt frontend is finished (issue #41).
-dev = ["streamlit>=1.12.0", "pytest>=7.2.1", "ruff>=0.6"]
+# dev pulls in web and gui so that `pip install -e ".[dev]"` can run the whole test
+# suite: tests/test_web_app.py needs streamlit and tests/test_gui.py needs PyQt6.
+dev = ["streamlit>=1.12.0", "pyqt6>=6.5", "pytest>=7.2.1", "ruff>=0.6"]
 
 [tool.pytest.ini_options]
 log_cli = true

@@ -90,3 +90,41 @@ To make `dicomfix` available in every shell without activating a virtualenv:
 ```console
 $ uv tool install --editable ~/Projects/dicomfix
 ```
+
+## Graphical interface
+
+A Qt front-end covers the common operations: rescaling, field duplication, range shifter,
+treatment machine, gantry angle, table position and snout position.
+
+The GUI needs the `gui` extra, which `dev` already includes:
+
+```console
+$ pip install -e ".[gui]"     # or ".[dev]", which pulls in gui and web
+$ dicomfix-gui                # optionally: dicomfix-gui path/to/plan.dcm
+```
+
+On Windows, download `dicomfix-gui.exe` from the
+[releases page](https://github.com/nbassler/dicomfix/releases) — no Python installation
+needed.
+
+Open a plan with **File → Open**, adjust the controls, then press **Export**. Edits are
+queued rather than applied as you go, so nothing is written until you export.
+
+The status bar shows the equivalent `dicomfix` command line for whatever you have queued.
+The GUI applies edits by running that exact command through the same code path as the CLI,
+so a plan exported from the GUI is byte-for-byte identical to the same plan produced on the
+command line — copy the command into a script when you need the operation to be
+reproducible.
+
+Controls are grouped by what they affect. **Plan (applies to all fields)** holds everything
+dicomfix writes to every field at once — table position, snout, treatment machine, range
+shifter. **Per field** holds the field selector and the gantry angle, which is the only
+value dicomfix sets per field; `Copy to all fields` gives every field the gantry shown.
+
+Note that DICOM stores the table position per field even though dicomfix writes one value
+to all of them. If a plan's fields have different table positions, the GUI warns before
+exporting, because the others would be overwritten.
+
+The couch angle is displayed but greyed out: dicomfix has no way to write
+`PatientSupportAngle`. `Retract Nozzle` sets the snout to its fully retracted position,
+42.1 cm.

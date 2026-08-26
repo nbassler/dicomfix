@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -39,14 +39,24 @@
        <item>
         <layout class="QVBoxLayout" name="verticalLayout_3">
          <item>
-          <widget class="QListView" name="listView"/>
+          <widget class="QPlainTextEdit" name="plainTextEdit_inspect">
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+           <property name="lineWrapMode">
+            <enum>QPlainTextEdit::NoWrap</enum>
+           </property>
+           <property name="plainText">
+            <string>Open a plan with File - Open.</string>
+           </property>
+          </widget>
          </item>
          <item>
           <layout class="QHBoxLayout" name="horizontalLayout_2">
            <item>
             <widget class="QGroupBox" name="groupBox_3">
              <property name="title">
-              <string>Plan</string>
+              <string>Plan (applies to all fields)</string>
              </property>
              <property name="flat">
               <bool>false</bool>
@@ -93,6 +103,13 @@
                  </widget>
                 </item>
                 <item>
+                 <widget class="QLabel" name="label_treatment_machine">
+                  <property name="text">
+                   <string>Treatment Machine</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
                  <widget class="QComboBox" name="comboBox_treatment_machine">
                   <item>
                    <property name="text">
@@ -116,25 +133,7 @@
                   </item>
                  </widget>
                 </item>
-               </layout>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QGroupBox" name="groupBox">
-             <property name="title">
-              <string>Fields</string>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_6">
-              <item>
-               <layout class="QVBoxLayout" name="verticalLayout">
-                <item>
-                 <widget class="QComboBox" name="comboBox_field"/>
-                </item>
-                <item>
-                 <layout class="QGridLayout" name="gridLayout">
-                  <item row="1" column="0">
+               <item><layout class="QGridLayout" name="gridLayout_plan"><item row="0" column="0">
                    <widget class="QLabel" name="label_table_longitudinal">
                     <property name="toolTip">
                      <string>Table position along its long axis. Positive direction to cranial side.</string>
@@ -144,14 +143,14 @@
                     </property>
                    </widget>
                   </item>
-                  <item row="0" column="1">
+                  <item row="1" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_table_vertical">
                     <property name="minimum">
                      <double>-99.000000000000000</double>
                     </property>
                    </widget>
                   </item>
-                  <item row="0" column="0">
+                  <item row="1" column="0">
                    <widget class="QLabel" name="label">
                     <property name="toolTip">
                      <string extracomment="fff">Table height, positive upwards</string>
@@ -168,7 +167,7 @@
                     </property>
                    </widget>
                   </item>
-                  <item row="1" column="1">
+                  <item row="0" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_table_longitudinal">
                     <property name="minimum">
                      <double>-99.000000000000000</double>
@@ -185,7 +184,59 @@
                     </property>
                    </widget>
                   </item>
+                  <item row="3" column="0">
+                   <widget class="QLabel" name="label_6">
+                    <property name="text">
+                     <string>Nozzle [cm]</string>
+                    </property>
+                   </widget>
+                  </item>
                   <item row="3" column="1">
+                   <widget class="QDoubleSpinBox" name="doubleSpinBox_nozzle_position">
+                    <property name="maximum">
+                     <double>50.000000000000000</double>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="4" column="1">
+                   <widget class="QPushButton" name="pushButton_snout_retract">
+                    <property name="toolTip">
+                     <string>Set the snout to its fully retracted position.</string>
+                    </property>
+                    <property name="text">
+                     <string>Retract Nozzle</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout></item></layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBox">
+             <property name="title">
+              <string>Per field</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_6">
+              <item>
+               <layout class="QVBoxLayout" name="verticalLayout">
+                <item>
+                 <widget class="QComboBox" name="comboBox_field" />
+                </item>
+                <item>
+                 <widget class="QPushButton" name="pushButton_copy_to_all_fields">
+                  <property name="toolTip">
+                   <string>Give every field the gantry angle shown here.</string>
+                  </property>
+                  <property name="text">
+                   <string>Copy to all fields</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QGridLayout" name="gridLayout">
+                  <item row="0" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_gantry">
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -195,7 +246,7 @@
                     </property>
                    </widget>
                   </item>
-                  <item row="3" column="0">
+                  <item row="0" column="0">
                    <widget class="QLabel" name="label_4">
                     <property name="toolTip">
                      <string>Ganty Angle, 0 if beam comes from top. Positive direction moves clockwise seen from alcove.</string>
@@ -205,31 +256,17 @@
                     </property>
                    </widget>
                   </item>
-                  <item row="4" column="1">
-                   <widget class="QDoubleSpinBox" name="doubleSpinBox_couch"/>
+                  <item row="1" column="1">
+                   <widget class="QDoubleSpinBox" name="doubleSpinBox_couch" />
                   </item>
-                  <item row="4" column="0">
+                  <item row="1" column="0">
                    <widget class="QLabel" name="label_5">
                     <property name="text">
                      <string>Couch [°]</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="5" column="0">
-                   <widget class="QLabel" name="label_6">
-                    <property name="text">
-                     <string>Nozzle [cm]</string>
-                    </property>
-                   </widget>
-                  </item>
-                  <item row="5" column="1">
-                   <widget class="QDoubleSpinBox" name="doubleSpinBox_nozzle_position">
-                    <property name="maximum">
-                     <double>50.000000000000000</double>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
+                  </layout>
                 </item>
                </layout>
               </item>
@@ -245,35 +282,130 @@
                </property>
                <layout class="QVBoxLayout" name="verticalLayout_8">
                 <item>
-                 <widget class="QPushButton" name="pushButton_new_target_dose">
+                 <widget class="QLabel" name="label_rescale_factor">
                   <property name="text">
-                   <string>New Target Dose</string>
+                   <string>Rescale factor</string>
                   </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QPushButton" name="pushButton_rescale_dose">
-                  <property name="text">
-                   <string>Rescale Dose</string>
+                 <widget class="QDoubleSpinBox" name="doubleSpinBox_rescale_factor">
+                  <property name="toolTip">
+                   <string>Multiply plan MUs by this factor. Linked to the prescribed dose below: editing either updates the other.</string>
+                  </property>
+                  <property name="decimals">
+                   <number>4</number>
+                  </property>
+                  <property name="minimum">
+                   <double>0.000100000000000</double>
+                  </property>
+                  <property name="maximum">
+                   <double>9999.000000000000000</double>
+                  </property>
+                  <property name="value">
+                   <double>1.000000000000000</double>
+                  </property>
+                  <property name="singleStep">
+                   <double>0.100000000000000</double>
                   </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QPushButton" name="pushButton_double_fields">
+                 <widget class="QLabel" name="label_rescale_dose">
                   <property name="text">
-                   <string>Double Fields</string>
+                   <string>Prescribed dose</string>
                   </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QPushButton" name="pushButton_fix_raystation">
+                 <widget class="QDoubleSpinBox" name="doubleSpinBox_rescale_dose">
+                  <property name="toolTip">
+                   <string>Dose after rescaling. Linked to the factor above: editing either updates the other.</string>
+                  </property>
+                  <property name="suffix">
+                   <string> Gy(RBE)</string>
+                  </property>
+                  <property name="decimals">
+                   <number>4</number>
+                  </property>
+                  <property name="minimum">
+                   <double>0.000100000000000</double>
+                  </property>
+                  <property name="maximum">
+                   <double>99999.000000000000000</double>
+                  </property>
+                  <property name="singleStep">
+                   <double>0.100000000000000</double>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="label_range_shifter">
+                  <property name="text">
+                   <string>Range shifter</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="comboBox_range_shifter">
+                  <property name="toolTip">
+                   <string>Set or remove the range shifter for all fields.</string>
+                  </property>
+                  <item>
+                   <property name="text">
+                    <string>None</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>RS2</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>RS5</string>
+                   </property>
+                  </item>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="label_duplicate_fields">
+                  <property name="text">
+                   <string>Duplicate fields</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="spinBox_duplicate_fields">
+                  <property name="toolTip">
+                   <string>Repeat every field this many times.</string>
+                  </property>
+                  <property name="specialValueText">
+                   <string>(none)</string>
+                  </property>
+                  <property name="minimum">
+                   <number>1</number>
+                  </property>
+                  <property name="maximum">
+                   <number>20</number>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="checkBox_fix_raystation">
+                  <property name="toolTip">
+                   <string>Make RayStation plans compatible with Varian proton systems.</string>
+                  </property>
                   <property name="text">
                    <string>Fix RayStation</string>
                   </property>
                  </widget>
                 </item>
                 <item>
-                 <widget class="QPushButton" name="pushButton_fix_tr4">
+                 <widget class="QCheckBox" name="checkBox_fix_tr4">
+                  <property name="toolTip">
+                   <string>TR4 wizard: sets approval, gantry, snout and treatment machine.</string>
+                  </property>
                   <property name="text">
                    <string>Fix TR4</string>
                   </property>
@@ -283,15 +415,22 @@
               </widget>
              </item>
              <item>
-              <widget class="QPushButton" name="pushButton_inspect_plan">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
+              <widget class="QPushButton" name="pushButton_copy_command">
+               <property name="toolTip">
+                <string>Copy the equivalent dicomfix command to the clipboard, for pasting into a script.</string>
                </property>
                <property name="text">
-                <string>Inspect Plan</string>
+                <string>Copy command</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="pushButton_reset">
+               <property name="toolTip">
+                <string>Discard all queued edits and return every control to the plan's own values.</string>
+               </property>
+               <property name="text">
+                <string>Reset</string>
                </property>
               </widget>
              </item>
@@ -326,18 +465,18 @@
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="actionOpen"/>
+    <addaction name="actionOpen" />
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="actionAbout"/>
+    <addaction name="actionAbout" />
    </widget>
-   <addaction name="menuFile"/>
-   <addaction name="menuHelp"/>
+   <addaction name="menuFile" />
+   <addaction name="menuHelp" />
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusbar" />
   <action name="actionAbout">
    <property name="text">
     <string>About</string>
@@ -345,7 +484,7 @@
   </action>
   <action name="actionOpen">
    <property name="icon">
-    <iconset theme="folder-open"/>
+    <iconset theme="folder-open" />
    </property>
    <property name="text">
     <string>Open</string>
@@ -355,6 +494,6 @@
    </property>
   </action>
  </widget>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>
