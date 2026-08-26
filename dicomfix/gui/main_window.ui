@@ -40,7 +40,7 @@
         <layout class="QVBoxLayout" name="verticalLayout_3">
          <item>
           <widget class="QPlainTextEdit" name="plainTextEdit_inspect">
-           <property name="readOnly">
+           <property name="toolTip"><string>Summary of the loaded plan, the same text the -i command line option prints. After an export it shows the plan that was written.</string></property><property name="readOnly">
             <bool>true</bool>
            </property>
            <property name="lineWrapMode">
@@ -69,7 +69,7 @@
                <layout class="QVBoxLayout" name="verticalLayout_2">
                 <item>
                  <widget class="QCheckBox" name="checkBox_anonymize">
-                  <property name="text">
+                  <property name="toolTip"><string>Not implemented.</string></property><property name="text">
                    <string>Anonymize</string>
                   </property>
                  </widget>
@@ -90,14 +90,14 @@
                 </item>
                 <item>
                  <widget class="QCheckBox" name="checkBox_newdatetime">
-                  <property name="text">
+                  <property name="toolTip"><string>Stamp the exported plan with the current date and time.</string></property><property name="text">
                    <string>New Date/Time</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QCheckBox" name="checkBox_reviewername">
-                  <property name="text">
+                  <property name="toolTip"><string>Not implemented.</string></property><property name="text">
                    <string>Reviewer Name</string>
                   </property>
                  </widget>
@@ -111,7 +111,7 @@
                 </item>
                 <item>
                  <widget class="QComboBox" name="comboBox_treatment_machine">
-                  <item>
+                  <property name="toolTip"><string>Treatment machine name, written to every field.</string></property><item>
                    <property name="text">
                     <string>TR1</string>
                    </property>
@@ -206,7 +206,7 @@
                   </item>
                   <item row="3" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_nozzle_position">
-                    <property name="maximum">
+                    <property name="toolTip"><string>Snout position, applied to every field.</string></property><property name="maximum">
                      <double>50.000000000000000</double>
                     </property>
                    </widget>
@@ -222,7 +222,7 @@
                    </widget>
                   </item>
                  <item><widget class="Line" name="line_field"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item><item>
-                 <widget class="QComboBox" name="comboBox_field" />
+                 <widget class="QComboBox" name="comboBox_field"><property name="toolTip"><string>Which field the gantry angle below refers to. Everything else on this window applies to all fields.</string></property></widget>
                 </item>
                 <item><layout class="QGridLayout" name="gridLayout_perfield"><item row="0" column="0">
                    <widget class="QLabel" name="label_4">
@@ -236,7 +236,7 @@
                   </item>
                   <item row="0" column="1">
                    <widget class="QDoubleSpinBox" name="doubleSpinBox_gantry">
-                    <property name="sizePolicy">
+                    <property name="toolTip"><string>Gantry angle of the selected field. This is the only value dicomfix sets per field; use Copy to all fields to give every field this angle.</string></property><property name="sizePolicy">
                      <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
@@ -422,7 +422,7 @@
              </item>
              <item>
               <widget class="QPushButton" name="pushButton_export">
-               <property name="text">
+               <property name="toolTip"><string>Apply the queued changes and write a new plan. The plan you opened is never modified.</string></property><property name="text">
                 <string>Export</string>
                </property>
               </widget>

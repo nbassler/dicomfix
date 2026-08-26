@@ -931,3 +931,47 @@ class TestUnlistedRangeShifter:
         c = window.comboBox_range_shifter
         assert [c.itemText(i) for i in range(c.count())] == ["None", "RS2", "RS5"]
         assert c.currentText() == "None"
+
+
+class TestTooltips:
+    """Every control the user can touch should say what it does."""
+
+    KINDS = ("QPushButton", "QComboBox", "QDoubleSpinBox", "QSpinBox",
+             "QCheckBox", "QPlainTextEdit")
+
+    def interactive(self, window):
+        seen = {}
+        for child in window.findChildren(object):
+            name = getattr(child, "objectName", lambda: "")()
+            if name and type(child).__name__ in self.KINDS:
+                seen.setdefault(name, child)
+        return seen
+
+    def test_no_control_is_left_unexplained(self, window):
+        window.load_plan(str(PLAN_FILE))
+        missing = [n for n, c in self.interactive(window).items() if not c.toolTip()]
+        assert not missing, f"controls without a tooltip: {missing}"
+
+    def test_before_a_plan_is_loaded_too(self, window):
+        """Tooltips set only in _show_field would be absent on an empty window."""
+        missing = [n for n, c in self.interactive(window).items() if not c.toolTip()]
+        assert not missing, f"controls without a tooltip: {missing}"
+
+    def test_scrollable_boxes_explain_the_modifiers(self, window):
+        from dicomfix.gui.window import _WHEEL_STEPS
+        window.load_plan(str(PLAN_FILE))
+        for name in _WHEEL_STEPS:
+            tip = getattr(window, name).toolTip()
+            assert "Shift" in tip and "Ctrl" in tip, f"{name} does not mention modifiers"
+
+    def test_table_boxes_carry_the_axis_description(self, window):
+        """Users hover the spin box, not the label that describes the axis."""
+        window.load_plan(str(PLAN_FILE))
+        assert "positive upwards" in window.doubleSpinBox_table_vertical.toolTip()
+        assert "cranial" in window.doubleSpinBox_table_longitudinal.toolTip()
+        assert "left side" in window.doubleSpinBox_table_lateral.toolTip()
+
+    def test_controls_dicomfix_cannot_operate_say_so(self, window):
+        window.load_plan(str(PLAN_FILE))
+        for name in ("doubleSpinBox_couch", "checkBox_anonymize", "checkBox_reviewername"):
+            assert "ot implemented" in getattr(window, name).toolTip(), name

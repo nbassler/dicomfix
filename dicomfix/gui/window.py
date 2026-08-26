@@ -76,6 +76,15 @@ ICON_FILE = "dicomfix.ico"
 #
 # The factor is anchored a decade lower than the rest: it is dimensionless and sits near
 # 1, so a step of 1.0 would double a plan in one notch.
+# The table boxes get their tooltip rewritten per plan, so the axis description that
+# lives on the paired label has to be folded back in each time. Hovering the box is what
+# people actually do.
+_TABLE_LABELS = {
+    "doubleSpinBox_table_vertical": "label",
+    "doubleSpinBox_table_longitudinal": "label_table_longitudinal",
+    "doubleSpinBox_table_lateral": "label_lateral",
+}
+
 _WHEEL_STEPS = {
     "doubleSpinBox_table_vertical": 1.0,        # cm
     "doubleSpinBox_table_longitudinal": 1.0,    # cm
@@ -180,6 +189,9 @@ class MainWindow(QMainWindow):
         self._prepare_widgets()
         self._connect()
         self._set_editing_enabled(False)
+        # Also here, not just on load: it is what writes the approve and curative
+        # tooltips, and an empty window should still explain its controls.
+        self._apply_scope_rules()
         self.setAcceptDrops(True)
 
     # -- drag and drop -------------------------------------------------------
@@ -417,13 +429,15 @@ class MainWindow(QMainWindow):
             if dose:
                 self.doubleSpinBox_rescale_dose.setValue(dose)
                 self.doubleSpinBox_rescale_dose.setEnabled(True)
-                self.doubleSpinBox_rescale_dose.setToolTip(
-                    "Dose after rescaling. Linked to the factor above.")
+                self.doubleSpinBox_rescale_dose.setToolTip(with_wheel_hint(
+                    "Dose after rescaling. Linked to the factor above.",
+                    _WHEEL_STEPS["doubleSpinBox_rescale_dose"]))
             else:
                 # Nothing to scale from, so only the factor is meaningful here.
                 self.doubleSpinBox_rescale_dose.setEnabled(False)
                 self.doubleSpinBox_rescale_dose.setToolTip(
-                    "This plan carries no prescription or beam dose to scale from.")
+                    "This plan carries no prescription or beam dose to scale from, so "
+                    "only the factor above can be used.")
 
             self._show_field(0)
         finally:
@@ -443,10 +457,10 @@ class MainWindow(QMainWindow):
                     "setting the table applies one value to all of them.")
         else:
             hint = "Applies to every field."
-        for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
-                     "doubleSpinBox_table_lateral"):
+        for name, label_name in _TABLE_LABELS.items():
+            axis = getattr(self, label_name).toolTip()
             getattr(self, name).setToolTip(
-                with_wheel_hint(hint, _WHEEL_STEPS[name]))
+                with_wheel_hint(f"{axis}\n{hint}" if axis else hint, _WHEEL_STEPS[name]))
 
         # Widen the snout range rather than clamp: a value the spin box cannot represent
         # would be silently rewritten to the cap, queueing an -sp edit nobody asked for.
