@@ -965,14 +965,26 @@ class DicomUtil:
 
                 if hasattr(ib, 'IonControlPointSequence'):
                     icp = ib.IonControlPointSequence[0]
-                    output.append(f"            Gantry Angle                     : {icp.GantryAngle:8.2f} deg")
-                    output.append(f"            Snout Position                   : {icp.SnoutPosition * 0.1:8.2f} cm")
+
+                    def _pos(keyword, scale=1.0, unit="cm", _icp=icp):
+                        """Format a control point value that may be absent or empty.
+
+                        RayStation exports carry the table top positions with no value,
+                        so formatting them directly raises TypeError. See issue #37.
+                        """
+                        value = _icp.get(keyword, None)
+                        if value is None or value == "":
+                            return "  not set"
+                        return f"{float(value) * scale:8.2f} {unit}"
+
+                    output.append(f"            Gantry Angle                     : {_pos('GantryAngle', 1.0, 'deg')}")
+                    output.append(f"            Snout Position                   : {_pos('SnoutPosition', 0.1)}")
                     output.append(
-                        f"            Table Top Vertical Position      : {icp.TableTopVerticalPosition * 0.1:8.2f} cm")
+                        f"            Table Top Vertical Position      : {_pos('TableTopVerticalPosition', 0.1)}")
                     output.append(
-                        f"            Table Top Longitudinal Position  : {icp.TableTopLongitudinalPosition * 0.1:8.2f} cm")
+                        f"            Table Top Longitudinal Position  : {_pos('TableTopLongitudinalPosition', 0.1)}")
                     output.append(
-                        f"            Table Top Lateral Position       : {icp.TableTopLateralPosition * 0.1:8.2f} cm")
+                        f"            Table Top Lateral Position       : {_pos('TableTopLateralPosition', 0.1)}")
 
                     icps = ib.IonControlPointSequence
                     layer_count = 0

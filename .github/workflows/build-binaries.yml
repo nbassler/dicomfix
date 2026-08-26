@@ -25,17 +25,34 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install pyinstaller
-        python -m pip install .
+        python -m pip install ".[gui]"
 
-    - name: Build EXE
+    - name: Build CLI EXE
       run: |
         pyinstaller --onefile --name dicomfix dicomfix/main.py
 
-    - name: Upload EXE to release
+    - name: Build GUI EXE
+      # --add-data uses ';' as its separator on Windows and ':' on Linux. Getting it
+      # wrong builds successfully but ships without main_window.ui, so the GUI starts
+      # and then fails to find its layout.
+      run: |
+        pyinstaller --onefile --windowed --name dicomfix-gui `
+          --icon dicomfix/gui/dicomfix.ico `
+          --add-data "dicomfix/gui/main_window.ui;dicomfix/gui" `
+          --add-data "dicomfix/gui/dicomfix.ico;dicomfix/gui" `
+          dicomfix/gui/main.py
+
+    - name: Check the GUI binary starts and found its layout
+      run: |
+        ./dist/dicomfix-gui.exe --version
+
+    - name: Upload EXEs to release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v2
       with:
-        files: dist/dicomfix.exe
+        files: |
+          dist/dicomfix.exe
+          dist/dicomfix-gui.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -56,18 +73,33 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install pyinstaller
-        python -m pip install .
+        python -m pip install ".[gui]"
 
-    - name: Build binary
+    - name: Build CLI binary
       run: |
         pyinstaller --onefile --name dicomfix dicomfix/main.py
 
-    - name: Archive Linux binary
+    - name: Build GUI binary
+      # ':' separator here, ';' on Windows. See the note in the Windows job.
+      run: |
+        pyinstaller --onefile --windowed --name dicomfix-gui \
+          --add-data "dicomfix/gui/main_window.ui:dicomfix/gui" \
+          --add-data "dicomfix/gui/dicomfix.ico:dicomfix/gui" \
+          dicomfix/gui/main.py
+
+    - name: Check the GUI binary starts and found its layout
+      run: |
+        QT_QPA_PLATFORM=offscreen ./dist/dicomfix-gui --version
+
+    - name: Archive Linux binaries
       run: |
         tar -C dist -czf dist/dicomfix-linux-x86_64.tar.gz dicomfix
+        tar -C dist -czf dist/dicomfix-gui-linux-x86_64.tar.gz dicomfix-gui
 
-    - name: Upload binary to release
+    - name: Upload binaries to release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v2
       with:
-        files: dist/dicomfix-linux-x86_64.tar.gz
+        files: |
+          dist/dicomfix-linux-x86_64.tar.gz
+          dist/dicomfix-gui-linux-x86_64.tar.gz

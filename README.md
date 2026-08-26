@@ -90,3 +90,45 @@ To make `dicomfix` available in every shell without activating a virtualenv:
 ```console
 $ uv tool install --editable ~/Projects/dicomfix
 ```
+
+## Graphical interface
+
+A Qt front-end covers the common operations: rescaling, field duplication, range shifter,
+treatment machine, gantry angle, table position and snout position.
+
+The GUI needs the `gui` extra, which `dev` already includes:
+
+```console
+$ pip install -e ".[gui]"     # or ".[dev]", which pulls in gui and web
+$ dicomfix-gui                # optionally: dicomfix-gui path/to/plan.dcm
+```
+
+On Windows, download `dicomfix-gui.exe` from the
+[releases page](https://github.com/nbassler/dicomfix/releases) — no Python installation
+needed.
+
+Open a plan with **File → Open**, adjust the controls, then press **Export**. Edits are
+queued rather than applied as you go, so nothing is written until you export.
+
+The status bar shows the equivalent `dicomfix` command line for whatever you have queued.
+The GUI applies edits by running that exact command through the same code path as the CLI,
+so a plan exported from the GUI is byte-for-byte identical to the same plan produced on the
+command line — copy the command into a script when you need the operation to be
+reproducible.
+
+**Plan** covers the whole plan: approval, intent, date and treatment machine. **Field**
+holds the geometry — table position and nozzle, then a divider, then the field selector,
+gantry and couch, with `Copy to all fields` to give every field the gantry shown.
+**Wizards** covers rescaling, range shifter, field duplication and the RayStation and TR4
+fixes.
+
+Two things behave differently from how they may look. Gantry is the only value dicomfix
+writes per field; table position, nozzle, treatment machine and range shifter are written
+to *every* field, even though DICOM stores them per field. If a plan's fields have
+different table positions, the GUI warns before exporting, because the others would be
+overwritten.
+
+Controls dicomfix cannot operate are greyed out rather than left inert: the couch angle
+(there is no way to write `PatientSupportAngle`), and `Approve` and `Curative Intent` on
+plans already in that state, since neither can be undone. `Retract Nozzle` sets the snout
+to its fully retracted position, 42.1 cm.
