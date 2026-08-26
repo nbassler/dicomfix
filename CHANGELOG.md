@@ -19,6 +19,19 @@ before 1.1.0 are listed on the
 
 ### Added
 
+- **A working graphical interface** (`dicomfix-gui`), covering rescaling, field
+  duplication, range shifter, treatment machine, gantry angle, table position and snout
+  position (#41). Edits are queued and applied on export; the plan summary is shown in the
+  window; plans can be dragged onto it. Available as a standalone Windows executable, so
+  no Python installation is needed.
+
+  The GUI applies edits by building a dicomfix command line and running it through the
+  same code path as the CLI, so a plan exported from the GUI is byte-for-byte identical to
+  the same plan produced on the command line. A test asserts that equivalence.
+
+  Controls dicomfix cannot operate are greyed out rather than left inert: the couch angle
+  (there is no way to write `PatientSupportAngle`), and `Approve` and `Curative Intent` on
+  plans already in that state, since neither can be undone.
 - **Independent verification of every rescale** (`dicomfix/verify.py`). After any `-rf`,
   `-rd`, `-rm` or `-w`, the plan's delivered monitor units are recomputed from its DICOM
   tags by code that shares nothing with the rescaling logic, and compared against what was
@@ -26,8 +39,8 @@ before 1.1.0 are listed on the
   Checks cover per-spot meterset, plan total, `BeamMeterset` self-consistency, `BeamDose`,
   `TargetPrescriptionDose`, spot positions, beam energies, negative meterset and
   undeliverable surviving spots.
-- **A `dicomfix` console entry point.** `pip install dicomfix` previously installed no
-  command at all; `[project.scripts]` now provides one.
+- **Console entry points.** `pip install dicomfix` previously installed no command at all;
+  `dicomfix` and `dicomfix-gui` are now declared.
 - **Loud dose-rescale reporting**, shown without needing `-v`: the dose found in the plan,
   the dose requested, the factor derived from them, and the beam meterset before and after.
   The dose already in a plan may have drifted from earlier manipulation, and the factor is
@@ -39,7 +52,8 @@ before 1.1.0 are listed on the
 - `TargetPrescriptionDose` (300A,0026) now scales together with `BeamDose` in all rescale
   modes. Previously a rescaled plan stated its original prescription while delivering a
   different dose. **Output files differ from 1.0.0 for any plan that carries a prescription
-  dose.**
+  dose.** Note this tag is only read back when a plan is re-imported into a planning
+  system, so the discrepancy did not affect delivery.
 - `-rd` now refuses plans with more than one field, with an explanation, instead of
   crashing. `BeamDose` is per field, so a target dose is ambiguous on a multi-field plan;
   use `-rf` to apply an explicit factor there.
@@ -47,8 +61,8 @@ before 1.1.0 are listed on the
   previously wrote a complete DICOM file containing negative monitor units.
 - The `gui` extra installs `pyqt6` instead of `pyqt6-tools`, which is Qt Designer tooling
   that pins an old PyQt6 and often fails to install on current Python.
-- The `dev` extra now includes the web dependency, so `pip install -e ".[dev]"` can run the
-  whole test suite. It previously could not.
+- The `dev` extra now includes both `web` and `gui`, so `pip install -e ".[dev]"` can run
+  the whole test suite. It previously could not.
 - `dicomfix.gui` and `dicomfix.web` are now actually packaged; a non-editable install
   shipped neither, and `main_window.ui` was not declared as package data.
 - Linting moved from flake8 to ruff, configured in `pyproject.toml`.
@@ -60,6 +74,10 @@ before 1.1.0 are listed on the
   plan and nothing was logged.
 - Range shifter removal left a dangling `RangeShifterSettingsSequence` in the control
   points, referencing a range shifter that no longer existed.
+- **`-i` crashed on plans with no table position set** (#37), with
+  `TypeError: unsupported operand type(s) for *: 'NoneType' and 'float'`. RayStation writes
+  the table top positions as present but empty, so inspecting any such plan failed. They are
+  now reported as `not set`.
 - **`-rd` crashed on any plan with two or more fields** (#45), with
   `TypeError: '>' not supported between instances of 'MultiValue' and 'float'`.
 - **Rescaling twice in one session raised `TypeError`** (#45). `apply_rescale_factor()` read
@@ -81,3 +99,10 @@ before 1.1.0 are listed on the
 - Dose constraints in `DoseReferenceSequence` (`DeliveryMaximumDose`,
   `OrganAtRiskMaximumDose` and similar) are deliberately **not** rescaled. They are limits
   rather than delivered dose. Rescaling reports which ones it left alone.
+- DICOM stores the table top position per field, but `-tp` writes one value to every field.
+  This is unchanged, and is the long-standing CLI behaviour; the GUI now warns before
+  exporting when a plan's fields would lose distinct positions.
+- The test suite grew from 130 tests to 302. All 302 pass; at 1.0.0, 12 of the 130 were
+  failing, all of them the `test_web_app.py` path bug listed above. The new tests include
+  a fault-injection suite that verifies the rescale checker actually catches corrupted
+  plans rather than passing silently.
