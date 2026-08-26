@@ -105,7 +105,12 @@ $ dicomfix-gui                # optionally: dicomfix-gui path/to/plan.dcm
 
 On Windows, download `dicomfix-gui.exe` from the
 [releases page](https://github.com/nbassler/dicomfix/releases) — no Python installation
-needed.
+needed. The Linux binary on that page needs a few Qt system libraries, which PyQt6 does
+not bundle:
+
+```console
+$ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0
+```
 
 Open a plan with **File → Open**, adjust the controls, then press **Export**. Edits are
 queued rather than applied as you go, so nothing is written until you export.
