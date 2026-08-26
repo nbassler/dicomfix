@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -290,7 +290,7 @@
                    <string>Multiply plan MUs by this factor. Linked to the prescribed dose below: editing either updates the other.</string>
                   </property>
                   <property name="decimals">
-                   <number>4</number>
+                   <number>3</number>
                   </property>
                   <property name="minimum">
                    <double>0.000100000000000</double>
@@ -322,7 +322,7 @@
                    <string> Gy(RBE)</string>
                   </property>
                   <property name="decimals">
-                   <number>4</number>
+                   <number>2</number>
                   </property>
                   <property name="minimum">
                    <double>0.000100000000000</double>
@@ -452,7 +452,7 @@
      <string>File</string>
     </property>
     <addaction name="actionOpen" />
-   </widget>
+   <addaction name="separator" /><addaction name="actionExit" /></widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
      <string>Help</string>
@@ -479,7 +479,7 @@
     <string>Ctrl+O</string>
    </property>
   </action>
- </widget>
+ <action name="actionExit"><property name="text"><string>Exit</string></property><property name="toolTip"><string>Close DicomFix</string></property><property name="menuRole"><enum>QAction::QuitRole</enum></property></action></widget>
  <resources />
  <connections />
 </ui>

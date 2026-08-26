@@ -19,7 +19,8 @@ import os
 import sys
 
 from PyQt6 import uic
-from PyQt6.QtGui import QAction, QIcon, QKeySequence
+from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QWheelEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -69,6 +70,41 @@ _EDIT_WIDGETS = (
 APP_NAME = "DicomFix"
 ICON_FILE = "dicomfix.ico"
 
+# One wheel scheme for every editable quantity: a plain notch steps by the box's own
+# singleStep, Ctrl by ten times it (Qt's own behaviour, left alone), and Shift by a tenth
+# (added below, since Qt ignores Shift). Only the base step differs per quantity.
+#
+# The factor is anchored a decade lower than the rest: it is dimensionless and sits near
+# 1, so a step of 1.0 would double a plan in one notch.
+_WHEEL_STEPS = {
+    "doubleSpinBox_table_vertical": 1.0,        # cm
+    "doubleSpinBox_table_longitudinal": 1.0,    # cm
+    "doubleSpinBox_table_lateral": 1.0,         # cm
+    "doubleSpinBox_nozzle_position": 1.0,       # cm
+    "doubleSpinBox_gantry": 1.0,                # degrees
+    "doubleSpinBox_rescale_dose": 1.0,          # Gy(RBE)
+    "doubleSpinBox_rescale_factor": 0.1,        # dimensionless
+}
+
+
+class FineWheelFilter(QObject):
+    """Gives Shift+wheel a tenth-step on spin boxes, where Qt otherwise ignores Shift."""
+
+    def eventFilter(self, a0, a1):
+        if (isinstance(a1, QWheelEvent) and isinstance(a0, QDoubleSpinBox)
+                and a1.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+            notches = a1.angleDelta().y() / 120.0
+            a0.setValue(a0.value() + notches * a0.singleStep() / 10.0)
+            return True          # consume it, so Qt does not also apply its own step
+        return False
+
+
+def with_wheel_hint(tooltip, step):
+    """Append the scroll-step hint to a tooltip, so it survives being rewritten."""
+    hint = (f"Scroll steps by {step:g}; "
+            f"Shift for {step / 10:g}, Ctrl for {step * 10:g}.")
+    return f"{tooltip}\n{hint}" if tooltip else hint
+
 
 def resource_path(name):
     """
@@ -93,6 +129,7 @@ class MainWindow(QMainWindow):
     # place, exactly which widgets main_window.ui has to provide -- the same contract
     # tests/test_gui.py asserts at runtime.
     actionAbout: QAction
+    actionExit: QAction
     actionOpen: QAction
     checkBox_anonymize: QCheckBox
     checkBox_approve: QCheckBox
@@ -132,6 +169,11 @@ class MainWindow(QMainWindow):
         self.settings = EditSettings()
         self._loading = False        # suppresses edit signals while populating widgets
         self._linking = False        # guards the factor <-> dose link against feedback
+        # Where the loaded plan's own range shifter sits in the combo. Not always its
+        # RANGE_SHIFTERS index: an ID that list does not name is appended at the end.
+        self._plan_shifter_index = 0
+        # Held as an attribute: an event filter that goes out of scope stops filtering.
+        self._fine_wheel = FineWheelFilter(self)
 
         self._set_title()
         self._set_icon()
@@ -212,10 +254,25 @@ class MainWindow(QMainWindow):
         # a plan ever carries a value beyond it.
         self.doubleSpinBox_nozzle_position.setRange(0.0, SNOUT_RETRACTED)
 
+        for name, step in _WHEEL_STEPS.items():
+            box = getattr(self, name)
+            box.setSingleStep(step)
+            # Keep the box off zero. A zero factor or dose is not a rescale anyone
+            # wants, and modify() gates on truthiness, so -rf=0 is silently skipped
+            # rather than rejected. One step is the smallest value the box can show.
+            if name in ("doubleSpinBox_rescale_factor", "doubleSpinBox_rescale_dose"):
+                box.setMinimum(10 ** -box.decimals())
+            box.installEventFilter(self._fine_wheel)
+            box.setToolTip(with_wheel_hint(box.toolTip(), step))
+
     def _connect(self):
         self.actionOpen.triggered.connect(self.on_open)
         self.actionOpen.setShortcut(QKeySequence.StandardKey.Open)
         self.actionAbout.triggered.connect(self.on_about)
+        # StandardKey.Quit is Ctrl+Q where the platform uses one; Windows relies on
+        # Alt+F4, which Qt already provides.
+        self.actionExit.setShortcut(QKeySequence.StandardKey.Quit)
+        self.actionExit.triggered.connect(self.close)
         self.pushButton_export.setShortcut(QKeySequence.StandardKey.Save)
         self.pushButton_reset.clicked.connect(self.on_reset)
         self.comboBox_field.currentIndexChanged.connect(self.on_field_changed)
@@ -228,6 +285,13 @@ class MainWindow(QMainWindow):
         # over -rf when both are given, so emitting both would silently ignore one.
         self.doubleSpinBox_rescale_factor.valueChanged.connect(self.on_factor_changed)
         self.doubleSpinBox_rescale_dose.valueChanged.connect(self.on_dose_changed)
+        # valueChanged alone is not enough. The dose box is coarser than the factor, so
+        # typing a dose the box is already showing emits nothing, and the factor would
+        # keep a value the user has just overridden -- e.g. factor 1.004 on a 1 Gy plan
+        # displays as 1.00, and retyping "1.00" would silently still export 1.004.
+        # editingFinished fires regardless, and isModified() tells a keystroke from a
+        # programmatic setValue, so focus alone does not clobber a deliberate factor.
+        self.doubleSpinBox_rescale_dose.editingFinished.connect(self.on_dose_typed)
 
         self.comboBox_treatment_machine.currentIndexChanged.connect(self.on_edit_changed)
         self.comboBox_range_shifter.currentIndexChanged.connect(self.on_edit_changed)
@@ -333,7 +397,18 @@ class MainWindow(QMainWindow):
             # would queue a change the user did not ask for.
             self.comboBox_treatment_machine.setCurrentIndex(machine_index)
 
-            self.comboBox_range_shifter.setCurrentIndex(self.plan.range_shifter_index)
+            # Same treatment as the machine combo: a plan may carry a range shifter this
+            # list does not name, and collapsing it to "None" would tell the user there
+            # is nothing to remove -- so selecting "None" would queue no change and the
+            # shifter would survive the export. Offer the real ID instead.
+            self.comboBox_range_shifter.clear()
+            self.comboBox_range_shifter.addItems(RANGE_SHIFTERS)
+            shifter_index = self.plan.range_shifter_index
+            if shifter_index < 0:
+                self.comboBox_range_shifter.addItem(self.plan.range_shifter_id)
+                shifter_index = self.comboBox_range_shifter.count() - 1
+            self.comboBox_range_shifter.setCurrentIndex(shifter_index)
+            self._plan_shifter_index = shifter_index
             self.spinBox_duplicate_fields.setValue(1)
 
             # Factor 1.0 is "no rescaling", so the dose starts at the plan's own value.
@@ -370,7 +445,8 @@ class MainWindow(QMainWindow):
             hint = "Applies to every field."
         for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
                      "doubleSpinBox_table_lateral"):
-            getattr(self, name).setToolTip(hint)
+            getattr(self, name).setToolTip(
+                with_wheel_hint(hint, _WHEEL_STEPS[name]))
 
         # Widen the snout range rather than clamp: a value the spin box cannot represent
         # would be silently rewritten to the cap, queueing an -sp edit nobody asked for.
@@ -411,6 +487,18 @@ class MainWindow(QMainWindow):
                 self._linking = False
         self.on_edit_changed()
 
+    def on_dose_typed(self):
+        """Committed a typed dose, whether or not the displayed value changed.
+
+        Guarantees that whichever box was edited last is the one that wins, even when the
+        dose box cannot represent the difference the factor holds.
+        """
+        line = self.doubleSpinBox_rescale_dose.lineEdit()
+        if line is None or not line.isModified():
+            return          # focus passed through without an edit; leave the factor alone
+        line.setModified(False)
+        self.on_dose_changed(self.doubleSpinBox_rescale_dose.value())
+
     def on_dose_changed(self, dose):
         """Dose edited: back out the factor that reaches it."""
         if self._linking or self.plan is None:
@@ -444,9 +532,12 @@ class MainWindow(QMainWindow):
         machine = self.comboBox_treatment_machine.currentText()
         s.treatment_machine = machine if machine != self.plan.treatment_machine else None
 
+        # Compared against the plan's position in this combo, not its RANGE_SHIFTERS
+        # index: an unlisted ID is appended past the end of that list, so only the
+        # entries the -rh option understands can ever be queued.
         rs_index = self.comboBox_range_shifter.currentIndex()
         s.range_shifter = (RANGE_SHIFTERS[rs_index]
-                           if rs_index != self.plan.range_shifter_index else None)
+                           if rs_index != self._plan_shifter_index else None)
 
         # Only the factor is exported. The dose box is the same quantity in other units,
         # and rescale_plan() would silently drop -rf if -rd were present alongside it.
@@ -498,6 +589,9 @@ class MainWindow(QMainWindow):
         self.settings.clear()
         self._populate()
         self._apply_scope_rules()
+        # After an export the pane shows the exported plan. Reset returns the controls to
+        # the loaded plan, so the pane has to follow or the two describe different plans.
+        self._refresh_inspect()
         self.statusbar.showMessage("Edits reset", 4000)
 
     def on_copy_to_all_fields(self):

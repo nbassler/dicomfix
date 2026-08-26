@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import pytest
+from PyQt6.QtGui import QAction
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -225,9 +226,20 @@ class TestLinkedRescale:
         assert any(a.startswith("-rf=") for a in args)
         assert not any(a.startswith("-rd=") for a in args)
 
-    def test_factor_shows_four_decimals(self, window):
+    def test_box_precision(self, window):
+        """QDoubleSpinBox rounds the stored value, so these cap what the GUI applies."""
         window.load_plan(str(PLAN_FILE))
-        assert window.doubleSpinBox_rescale_factor.decimals() == 4
+        assert window.doubleSpinBox_rescale_factor.decimals() == 3
+        assert window.doubleSpinBox_rescale_dose.decimals() == 2
+
+    def test_dose_is_reachable_to_its_own_resolution(self, window):
+        """Three decimals on the factor is what lets the 0.01 Gy dose box be honest."""
+        window.load_plan(str(PLAN_FILE))
+        base = window.plan.prescribed_dose
+        for target in (4.0, 8.0, 11.0, 2.75):
+            window.doubleSpinBox_rescale_dose.setValue(target)
+            delivered = window.doubleSpinBox_rescale_factor.value() * base
+            assert abs(delivered - target) < 0.005, f"{target} Gy not reachable"
 
 
 class TestExport:
@@ -469,7 +481,9 @@ class TestDragAndDrop:
         from dicomfix.gui.model import describe_unsupported
         bad = tmp_path / "notes.txt"
         bad.write_text("not dicom at all")
-        assert "Not a DICOM file" in describe_unsupported(str(bad))
+        problem = describe_unsupported(str(bad))
+        assert problem is not None, "a text file was accepted as a plan"
+        assert "Not a DICOM file" in problem
 
     def test_a_dicom_of_the_wrong_modality_is_rejected(self, tmp_path):
         import pydicom
@@ -479,7 +493,9 @@ class TestDragAndDrop:
         d.Modality = "CT"
         p = tmp_path / "ct.dcm"
         d.save_as(str(p))
-        assert "not an RTPLAN" in describe_unsupported(str(p))
+        problem = describe_unsupported(str(p))
+        assert problem is not None, "a CT was accepted as a plan"
+        assert "not an RTPLAN" in problem
 
     def test_a_non_ion_rtplan_is_rejected(self, tmp_path):
         """A photon RTPLAN is a valid RTPLAN but has no IonBeamSequence."""
@@ -490,7 +506,9 @@ class TestDragAndDrop:
         del d.IonBeamSequence
         p = tmp_path / "photon.dcm"
         d.save_as(str(p))
-        assert "not an ion plan" in describe_unsupported(str(p))
+        problem = describe_unsupported(str(p))
+        assert problem is not None, "a photon plan was accepted as an ion plan"
+        assert "not an ion plan" in problem
 
     def test_dropping_a_bad_file_warns_and_loads_nothing(self, window, tmp_path,
                                                          no_modal_dialogs):
@@ -643,3 +661,273 @@ class TestSnoutRange:
         assert window.doubleSpinBox_nozzle_position.value() == pytest.approx(48.0)
         assert window.settings.snout_position is None
         assert "-sp" not in " ".join(window.settings.to_args("in.dcm", "out.dcm"))
+
+
+class TestExportThenReset:
+    """Reset after an export must leave the window describing one plan, not two."""
+
+    def test_reset_returns_the_pane_to_the_loaded_plan(self, window, tmp_path):
+        window.load_plan(str(PLAN_FILE))
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.export_to(str(tmp_path / "out.dcm"))
+        assert "exported:" in window.plainTextEdit_inspect.toPlainText()
+        window.pushButton_reset.click()
+        assert "exported:" not in window.plainTextEdit_inspect.toPlainText()
+
+    def test_reset_does_not_delete_the_exported_file(self, window, tmp_path):
+        """Reset discards queued edits, not work already written to disk."""
+        out = tmp_path / "out.dcm"
+        window.load_plan(str(PLAN_FILE))
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.export_to(str(out))
+        size = out.stat().st_size
+        window.pushButton_reset.click()
+        assert out.is_file() and out.stat().st_size == size
+
+    def test_the_loaded_plan_is_never_modified_by_exporting(self, window, tmp_path):
+        """Edits are deferred, so exporting builds a fresh plan and leaves this one alone."""
+        window.load_plan(str(PLAN_FILE))
+        before = window.plan.prescribed_dose
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.export_to(str(tmp_path / "out.dcm"))
+        assert window.plan.prescribed_dose == pytest.approx(before)
+
+    def test_exporting_twice_does_not_compound(self, window, tmp_path):
+        """The second export must rescale from the original, not from the first output."""
+        from dicomfix.dicomutil import DicomUtil
+        window.load_plan(str(PLAN_FILE))
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        a, b = tmp_path / "a.dcm", tmp_path / "b.dcm"
+        assert window.export_to(str(a))
+        assert window.export_to(str(b))
+        assert sha256(a) == sha256(b)
+        rb = DicomUtil(str(a)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        assert float(rb.BeamDose) == pytest.approx(11.0, rel=1e-4)   # 5.5 x 2, not x 4
+
+
+class TestFileMenu:
+    def test_file_menu_offers_open_and_exit(self, window):
+        texts = [a.text() for a in window.menuFile.actions() if not a.isSeparator()]
+        assert texts == ["Open", "Exit"]
+
+    def test_exit_is_separated_from_open(self, window):
+        """A separator keeps Exit from being hit while reaching for Open."""
+        assert any(a.isSeparator() for a in window.menuFile.actions())
+
+    def test_exit_closes_the_window(self, window):
+        window.show()
+        assert window.isVisible()
+        window.actionExit.trigger()
+        assert not window.isVisible()
+
+    def test_exit_is_placed_correctly_on_macos(self, window):
+        """QuitRole moves it into the application menu on macOS, and is inert elsewhere."""
+        assert window.actionExit.menuRole() == QAction.MenuRole.QuitRole
+
+
+class TestLinkedFieldsLastEditWins:
+    """The dose box is coarser than the factor, which can hide a disagreement.
+
+    On a 1 Gy plan a factor of 1.004 displays as a dose of 1.00. Retyping "1.00" then
+    emits no valueChanged, so without editingFinished the factor would keep 1.004 and
+    export a dose the user had just overridden.
+    """
+
+    @pytest.fixture
+    def one_gy_plan(self, tmp_path):
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose = 1.0
+        p = tmp_path / "one_gy.dcm"
+        d.save_as(str(p))
+        return str(p)
+
+    @staticmethod
+    def type_dose(window, text):
+        """Type into the dose box and commit, as a user would."""
+        line = window.doubleSpinBox_rescale_dose.lineEdit()
+        line.setText(text)
+        line.setModified(True)
+        window.doubleSpinBox_rescale_dose.editingFinished.emit()
+
+    def test_factor_alone_is_kept(self, window, one_gy_plan):
+        window.load_plan(one_gy_plan)
+        window.doubleSpinBox_rescale_factor.setValue(1.004)
+        assert window.settings.rescale_factor == pytest.approx(1.004)
+
+    def test_typing_the_displayed_dose_still_overrides_the_factor(self, window, one_gy_plan):
+        """The case that motivated editingFinished."""
+        window.load_plan(one_gy_plan)
+        window.doubleSpinBox_rescale_factor.setValue(1.004)
+        assert window.doubleSpinBox_rescale_dose.text().startswith("1.00")
+        self.type_dose(window, "1.00")
+        assert window.doubleSpinBox_rescale_factor.value() == pytest.approx(1.0)
+        assert window.settings.rescale_factor is None       # 1.0 means no rescaling
+
+    def test_focus_alone_does_not_clobber_the_factor(self, window, one_gy_plan):
+        """editingFinished also fires on focus-out; isModified() must gate it."""
+        window.load_plan(one_gy_plan)
+        window.doubleSpinBox_rescale_factor.setValue(1.004)
+        window.doubleSpinBox_rescale_dose.editingFinished.emit()
+        assert window.settings.rescale_factor == pytest.approx(1.004)
+
+    def test_exported_dose_follows_the_last_edited_box(self, window, one_gy_plan, tmp_path):
+        from dicomfix.dicomutil import DicomUtil
+
+        def written(action):
+            window.load_plan(one_gy_plan)
+            action()
+            out = tmp_path / "o.dcm"
+            assert window.export_to(str(out))
+            rb = DicomUtil(str(out)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+            return float(rb.BeamDose)
+
+        assert written(lambda: window.doubleSpinBox_rescale_factor.setValue(1.004)) \
+            == pytest.approx(1.004, abs=1e-4)
+        assert written(lambda: (window.doubleSpinBox_rescale_factor.setValue(1.004),
+                                self.type_dose(window, "1.00"))) \
+            == pytest.approx(1.000, abs=1e-4)
+
+
+class TestWheelSteps:
+    """One scheme everywhere: plain = the box's step, Shift = a tenth, Ctrl = ten times.
+
+    Qt supplies plain and Ctrl; Shift does nothing by default and is added by
+    FineWheelFilter. Only the base step differs per quantity.
+    """
+
+    @staticmethod
+    def scroll(app, box, modifier):
+        from PyQt6.QtCore import QPoint, QPointF, Qt
+        from PyQt6.QtGui import QWheelEvent
+        event = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120),
+                            Qt.MouseButton.NoButton, modifier,
+                            Qt.ScrollPhase.NoScrollPhase, False)
+        app.sendEvent(box, event)
+
+    @pytest.mark.parametrize("name", [
+        "doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
+        "doubleSpinBox_table_lateral", "doubleSpinBox_nozzle_position",
+        "doubleSpinBox_gantry", "doubleSpinBox_rescale_factor",
+    ])
+    def test_modifiers_scale_the_step(self, window, qapp, name):
+        from PyQt6.QtCore import Qt
+
+        from dicomfix.gui.window import _WHEEL_STEPS
+        window.load_plan(str(PLAN_FILE))
+        box, step = getattr(window, name), _WHEEL_STEPS[name]
+        # Start clear of the floor, so a full Ctrl step of 10x has room and the test
+        # measures the step rather than the clamp.
+        start = box.minimum() + step * 20
+        box.setValue(start)
+        start = box.value()
+        for modifier, expected in (
+            (Qt.KeyboardModifier.NoModifier, step),
+            (Qt.KeyboardModifier.ShiftModifier, step / 10),
+            (Qt.KeyboardModifier.ControlModifier, step * 10),
+        ):
+            box.setValue(start)
+            self.scroll(qapp, box, modifier)
+            assert start - box.value() == pytest.approx(expected, rel=1e-6), \
+                f"{name} with {modifier}"
+
+    def test_geometry_boxes_step_by_one_unit(self, window):
+        from dicomfix.gui.window import _WHEEL_STEPS
+        for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_nozzle_position",
+                     "doubleSpinBox_gantry", "doubleSpinBox_rescale_dose"):
+            assert _WHEEL_STEPS[name] == 1.0
+
+    def test_factor_steps_a_decade_finer(self, window):
+        """A step of 1.0 on a dimensionless factor near 1 would double a plan per notch."""
+        from dicomfix.gui.window import _WHEEL_STEPS
+        assert _WHEEL_STEPS["doubleSpinBox_rescale_factor"] == 0.1
+
+    def test_rescale_boxes_cannot_reach_zero(self, window):
+        """modify() gates on truthiness, so -rf=0 is silently skipped, not rejected."""
+        window.load_plan(str(PLAN_FILE))
+        for name in ("doubleSpinBox_rescale_factor", "doubleSpinBox_rescale_dose"):
+            box = getattr(window, name)
+            box.setValue(0.0)
+            assert box.value() > 0.0, f"{name} reached zero"
+
+    def test_the_hint_is_in_the_tooltip(self, window):
+        window.load_plan(str(PLAN_FILE))
+        assert "Shift" in window.doubleSpinBox_table_vertical.toolTip()
+        assert "Shift" in window.doubleSpinBox_gantry.toolTip()
+
+
+class TestUnlistedRangeShifter:
+    """Plans carry range shifter IDs outside None/RS2/RS5 -- e.g. a slit collimator.
+
+    Collapsing those to "None" made the GUI claim there was nothing to remove, so
+    selecting "None" queued no change and the shifter survived the export. That is
+    issue #43 all over again, one layer up.
+    """
+
+    @pytest.fixture
+    def slit_plan(self, tmp_path):
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        for ib in d.IonBeamSequence:
+            ib.NumberOfRangeShifters = 1
+            rs = pydicom.Dataset()
+            rs.RangeShifterNumber = 1
+            rs.RangeShifterID = "SlitColl"
+            rs.RangeShifterType = "BINARY"
+            ib.RangeShifterSequence = [rs]
+        p = tmp_path / "slit.dcm"
+        d.save_as(str(p))
+        return str(p)
+
+    @staticmethod
+    def shifter_of(path):
+        from dicomfix.dicomutil import DicomUtil
+        ib = DicomUtil(path).dicom.IonBeamSequence[0]
+        seq = getattr(ib, "RangeShifterSequence", None)
+        return str(seq[0].RangeShifterID) if seq else None
+
+    def test_the_plans_own_shifter_is_shown(self, window, slit_plan):
+        window.load_plan(slit_plan)
+        assert window.comboBox_range_shifter.currentText() == "SlitColl"
+
+    def test_it_is_offered_in_the_list(self, window, slit_plan):
+        window.load_plan(slit_plan)
+        c = window.comboBox_range_shifter
+        assert [c.itemText(i) for i in range(c.count())] == \
+            ["None", "RS2", "RS5", "SlitColl"]
+
+    def test_leaving_it_alone_queues_nothing(self, window, slit_plan):
+        window.load_plan(slit_plan)
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.settings.range_shifter is None
+
+    def test_selecting_none_actually_removes_it(self, window, slit_plan, tmp_path):
+        """The whole point: -rh=None must be emitted and the shifter must go."""
+        window.load_plan(slit_plan)
+        window.comboBox_range_shifter.setCurrentIndex(0)          # None
+        assert "-rh=None" in window.settings.to_args("in.dcm", "out.dcm")
+        out = tmp_path / "removed.dcm"
+        assert window.export_to(str(out))
+        assert self.shifter_of(str(out)) is None
+
+    def test_selecting_a_real_shifter_replaces_it(self, window, slit_plan, tmp_path):
+        window.load_plan(slit_plan)
+        window.comboBox_range_shifter.setCurrentIndex(1)          # RS2
+        out = tmp_path / "rs2.dcm"
+        assert window.export_to(str(out))
+        assert self.shifter_of(str(out)) == "RS_2CM"
+
+    def test_an_unlisted_id_is_never_passed_to_rh(self, window, slit_plan):
+        """-rh only understands None/RS2/RS5; 'SlitColl' must never reach it."""
+        window.load_plan(slit_plan)
+        for i in range(window.comboBox_range_shifter.count()):
+            window.comboBox_range_shifter.setCurrentIndex(i)
+            for arg in window.settings.to_args("in.dcm", "out.dcm"):
+                assert not arg.startswith("-rh=SlitColl")
+
+    def test_the_extra_entry_does_not_accumulate(self, window, slit_plan):
+        window.load_plan(slit_plan)
+        window.load_plan(str(PLAN_FILE))          # no range shifter
+        c = window.comboBox_range_shifter
+        assert [c.itemText(i) for i in range(c.count())] == ["None", "RS2", "RS5"]
+        assert c.currentText() == "None"

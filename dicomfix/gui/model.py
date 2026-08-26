@@ -154,20 +154,33 @@ class PlanModel:
         return total if found else None
 
     @property
-    def range_shifter_index(self):
-        """Index into RANGE_SHIFTERS based on what the first field currently carries."""
-        if not self.dicom_util.dicom.IonBeamSequence:
-            return 0
-        ibs = self.dicom_util.dicom.IonBeamSequence[0]
-        seq = getattr(ibs, "RangeShifterSequence", None)
+    def range_shifter_id(self):
+        """
+        RangeShifterID the first field currently carries, or None when it has none.
+
+        Returned raw rather than mapped onto RANGE_SHIFTERS: plans carry IDs outside that
+        list, and collapsing them to "None" would make the UI claim a plan has no range
+        shifter when it has one, so removing it would never be requested.
+        """
+        beams = self.dicom_util.dicom.IonBeamSequence
+        if not beams:
+            return None
+        seq = getattr(beams[0], "RangeShifterSequence", None)
         if not seq:
-            return 0  # "None"
-        rs_id = str(getattr(seq[0], "RangeShifterID", ""))
+            return None
+        return str(getattr(seq[0], "RangeShifterID", "")) or None
+
+    @property
+    def range_shifter_index(self):
+        """Index into RANGE_SHIFTERS, or -1 for an ID that list does not cover."""
+        rs_id = self.range_shifter_id
+        if rs_id is None:
+            return 0                        # "None"
         if rs_id == "RS_2CM":
             return 1
         if rs_id == "RS_5CM":
             return 2
-        return 0
+        return -1
 
     def inspect(self):
         """Human-readable summary, reusing the same output the CLI's -i prints."""
