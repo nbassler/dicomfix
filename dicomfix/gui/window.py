@@ -41,6 +41,7 @@ from dicomfix.dicomutil import DicomUtil
 from dicomfix.gui.model import (
     RANGE_SHIFTERS,
     SNOUT_RETRACTED,
+    TREATMENT_MACHINES,
     EditSettings,
     PlanModel,
     describe_unsupported,
@@ -207,7 +208,9 @@ class MainWindow(QMainWindow):
         for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
                      "doubleSpinBox_table_lateral"):
             getattr(self, name).setRange(-200.0, 200.0)
-        self.doubleSpinBox_nozzle_position.setRange(0.0, 500.0)
+        # The snout travels from 0 to fully retracted; _show_field widens the top end if
+        # a plan ever carries a value beyond it.
+        self.doubleSpinBox_nozzle_position.setRange(0.0, SNOUT_RETRACTED)
 
     def _connect(self):
         self.actionOpen.triggered.connect(self.on_open)
@@ -315,7 +318,21 @@ class MainWindow(QMainWindow):
                          "checkBox_fix_tr4"):
                 getattr(self, name).setChecked(False)
 
-            self.comboBox_treatment_machine.setCurrentIndex(self.plan.treatment_machine_index)
+            # Rebuilt each time, so a machine carried in from a previously loaded plan
+            # cannot linger in the list.
+            self.comboBox_treatment_machine.clear()
+            self.comboBox_treatment_machine.addItems(TREATMENT_MACHINES)
+            machine_index = self.plan.treatment_machine_index
+            if machine_index < 0 and self.plan.treatment_machine:
+                # The plan names a machine we do not list. Offer it rather than showing a
+                # blank combo: blank hides which machine the plan uses, and the moment the
+                # user opens the list there is no way back to the plan's own value.
+                self.comboBox_treatment_machine.addItem(self.plan.treatment_machine)
+                machine_index = self.comboBox_treatment_machine.count() - 1
+            # Stays -1 only when the plan names no machine at all, where any selection
+            # would queue a change the user did not ask for.
+            self.comboBox_treatment_machine.setCurrentIndex(machine_index)
+
             self.comboBox_range_shifter.setCurrentIndex(self.plan.range_shifter_index)
             self.spinBox_duplicate_fields.setValue(1)
 
@@ -354,6 +371,11 @@ class MainWindow(QMainWindow):
         for name in ("doubleSpinBox_table_vertical", "doubleSpinBox_table_longitudinal",
                      "doubleSpinBox_table_lateral"):
             getattr(self, name).setToolTip(hint)
+
+        # Widen the snout range rather than clamp: a value the spin box cannot represent
+        # would be silently rewritten to the cap, queueing an -sp edit nobody asked for.
+        self.doubleSpinBox_nozzle_position.setMaximum(
+            max(SNOUT_RETRACTED, field.snout_position))
 
         self.doubleSpinBox_gantry.setValue(field.gantry)
         self.doubleSpinBox_couch.setValue(field.couch)

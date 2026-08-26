@@ -556,3 +556,90 @@ class TestIcon:
 
     def test_window_actually_sets_it(self, window):
         assert not window.windowIcon().isNull()
+
+
+class TestUnlistedTreatmentMachine:
+    """A plan may name a machine outside the hard-coded TR1..TR4 list."""
+
+    @pytest.fixture
+    def tr7_plan(self, tmp_path):
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        for ib in d.IonBeamSequence:
+            ib.TreatmentMachineName = "TR7"
+        p = tmp_path / "tr7.dcm"
+        d.save_as(str(p))
+        return str(p)
+
+    @pytest.fixture
+    def nameless_plan(self, tmp_path):
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        for ib in d.IonBeamSequence:
+            ib.TreatmentMachineName = ""
+        p = tmp_path / "nameless.dcm"
+        d.save_as(str(p))
+        return str(p)
+
+    def test_unlisted_machine_is_shown_not_blanked(self, window, tr7_plan):
+        window.load_plan(tr7_plan)
+        assert window.comboBox_treatment_machine.currentText() == "TR7"
+
+    def test_unlisted_machine_stays_reachable(self, window, tr7_plan):
+        """Without this the user cannot get back to the plan's own machine."""
+        window.load_plan(tr7_plan)
+        c = window.comboBox_treatment_machine
+        assert "TR7" in [c.itemText(i) for i in range(c.count())]
+
+    def test_unlisted_machine_queues_no_change_on_its_own(self, window, tr7_plan):
+        window.load_plan(tr7_plan)
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.settings.treatment_machine is None
+        assert "-tm" not in window.settings.to_args("in.dcm", "out.dcm")
+
+    def test_switching_away_and_back_works(self, window, tr7_plan):
+        window.load_plan(tr7_plan)
+        c = window.comboBox_treatment_machine
+        c.setCurrentIndex(0)                               # TR1
+        assert window.settings.treatment_machine == "TR1"
+        c.setCurrentIndex(c.findText("TR7"))
+        assert window.settings.treatment_machine is None   # back to the plan's own value
+
+    def test_the_extra_entry_does_not_accumulate(self, window, tr7_plan):
+        """Loading another plan must not leave the previous plan's machine behind."""
+        window.load_plan(tr7_plan)
+        window.load_plan(str(PLAN_FILE))                   # TR4, a listed machine
+        c = window.comboBox_treatment_machine
+        assert [c.itemText(i) for i in range(c.count())] == ["TR1", "TR2", "TR3", "TR4"]
+        assert c.currentText() == "TR4"
+
+    def test_plan_with_no_machine_name_queues_nothing(self, window, nameless_plan):
+        """Any selection here would be a change the user never asked for."""
+        window.load_plan(nameless_plan)
+        assert window.comboBox_treatment_machine.currentIndex() == -1
+        window.doubleSpinBox_rescale_factor.setValue(2.0)
+        assert window.settings.treatment_machine is None
+
+
+class TestSnoutRange:
+    """The snout travels 0 to 42.1 cm, fully retracted being the far end."""
+
+    def test_range_is_capped_at_fully_retracted(self, window):
+        from dicomfix.gui.model import SNOUT_RETRACTED
+        window.load_plan(str(PLAN_FILE))
+        assert window.doubleSpinBox_nozzle_position.minimum() == pytest.approx(0.0)
+        assert window.doubleSpinBox_nozzle_position.maximum() == pytest.approx(SNOUT_RETRACTED)
+
+    def test_a_value_beyond_the_cap_is_not_silently_clamped(self, window, tmp_path):
+        """Clamping would rewrite the plan's own value and queue an -sp edit."""
+        import pydicom
+        d = pydicom.dcmread(str(PLAN_FILE))
+        for ib in d.IonBeamSequence:
+            ib.IonControlPointSequence[0].SnoutPosition = 480.0     # 48 cm
+        p = tmp_path / "long_snout.dcm"
+        d.save_as(str(p))
+
+        window.load_plan(str(p))
+        assert window.doubleSpinBox_nozzle_position.value() == pytest.approx(48.0)
+        assert window.settings.snout_position is None
+        assert "-sp" not in " ".join(window.settings.to_args("in.dcm", "out.dcm"))

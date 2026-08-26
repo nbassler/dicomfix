@@ -227,7 +227,7 @@
                 <item><layout class="QGridLayout" name="gridLayout_perfield"><item row="0" column="0">
                    <widget class="QLabel" name="label_4">
                     <property name="toolTip">
-                     <string>Ganty Angle, 0 if beam comes from top. Positive direction moves clockwise seen from alcove.</string>
+                     <string>Gantry Angle, 0 if beam comes from top. Positive direction moves clockwise seen from alcove.</string>
                     </property>
                     <property name="text">
                      <string>Gantry  [°]</string>
