@@ -6,13 +6,14 @@ with a focus on proton therapy treatment plans. It includes functionality
 for loading DICOM files, rescaling spot weights, and managing dose adjustments.
 """
 
-import logging
 import copy
 import datetime
-import pydicom
+import logging
 import random
 
+import pydicom
 from pydicom.uid import generate_uid
+
 # from dicomfix.dicom_comparator import compare_dicoms  # If you plan to use this in the future
 
 
@@ -21,6 +22,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_SAVE_FILENAME = "output.dcm"
 MU_MIN = 1.0  # at least this many MU in a single spot
 HLINE = 72 * '-'
+
+# Sentinel meaning "the user explicitly asked to remove the range shifter", as opposed
+# to None which means "the user did not ask for anything". See Config.parse_range_shifter.
+RANGE_SHIFTER_NONE = "NONE"
+# Water equivalent thickness [mm] of the available range shifters.
+RANGE_SHIFTER_WET = {"RS_2CM": 22.8, "RS_5CM": 57.0}
 
 
 class DicomUtil:
@@ -160,7 +167,7 @@ class DicomUtil:
             layer_factors = []
 
             try:
-                with open(config.weights, 'r') as f:
+                with open(config.weights) as f:
                     layer_factors = [float(line.strip()) for line in f if line.strip()]
                 logger.info(f"Read {len(layer_factors)} layer factors from '{config.weights}'")
             except ValueError:
@@ -190,13 +197,13 @@ class DicomUtil:
             beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
             meterset_per_weight = beam_meterset / final_original_cumulative_weight
 
-            for i, icp in enumerate(ib.IonControlPointSequence):
+            for icp in ib.IonControlPointSequence:
                 if icp.NumberOfScanSpotPositions == 1:
                     weights = [icp.ScanSpotMetersetWeights]
                 else:
                     weights = icp.ScanSpotMetersetWeights
 
-                for k, w in enumerate(weights):
+                for w in weights:
                     if w > 0.0 and ((w * meterset_per_weight) < mu_lowest):
                         mu_lowest = w * meterset_per_weight
 
@@ -216,7 +223,7 @@ class DicomUtil:
                 The length of the list should match the number of real energy layers in the DICOM plan.
         """
         d = self.dicom
-        for j, ib in enumerate(d.IonBeamSequence):
+        for j, _ib in enumerate(d.IonBeamSequence):
             scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
             logger.info(f"Rescaling dose to {new_dose:.2f} Gy(RBE)")
             self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
@@ -475,20 +482,28 @@ class DicomUtil:
 
         Args:
             range_shifter (str): The new range shifter name.
-            Can be None, "RS_2CM" or "RS_5CM".
+            Can be None, "None", "RS_2CM" or "RS_5CM".
 
         """
         d = self.dicom
 
-        if range_shifter is None:
-            logger.info("Removing Range Shifter Sequence from all fields.")
+        # None (the API default), the "NONE" sentinel from the command line and the
+        # plain "None" string from the web selectbox all mean "remove it".
+        if range_shifter is None or str(range_shifter).upper() in (RANGE_SHIFTER_NONE, ""):
+            n = 0
             for ibs in d.IonBeamSequence:
                 if hasattr(ibs, "RangeShifterSequence"):
                     del ibs.RangeShifterSequence
-                    ibs.NumberOfRangeShifters = 0
+                    n += 1
+                ibs.NumberOfRangeShifters = 0
+                for ics in ibs.IonControlPointSequence:
+                    # Leaving these behind would reference a range shifter which no longer exists.
+                    if hasattr(ics, "RangeShifterSettingsSequence"):
+                        del ics.RangeShifterSettingsSequence
+            logger.info(f"Range Shifter removed from {n} field(s).")
             return
 
-        if range_shifter not in ["RS_2CM", "RS_5CM"]:
+        if range_shifter not in RANGE_SHIFTER_WET:
             raise ValueError(f"Range shifter must be 'RS_2CM', 'RS_5CM' or None, got '{range_shifter}'.")
 
         for ibs in d.IonBeamSequence:
@@ -505,8 +520,7 @@ class DicomUtil:
                 rsss = ics.RangeShifterSettingsSequence[0]
                 rsss.RangeShifterSetting = 'IN'
                 rsss.IsocenterToRangeShifterDistance = 98.0
-                # TODO: define as dict somwhere
-                rsss.RangeShifterWaterEquivalentThickness = 57.0 if range_shifter == "RS_2CM" else 22.8
+                rsss.RangeShifterWaterEquivalentThickness = RANGE_SHIFTER_WET[range_shifter]
                 rsss.ReferencedRangeShifterNumber = 1
         logger.info(f"Range Shifter set to '{range_shifter}' for all fields.")
 
@@ -729,7 +743,7 @@ class DicomUtil:
             ib.ReferencedToleranceTableNumber = 1
 
             cum = 0.0
-            for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
+            for icp in ib.IonControlPointSequence:  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
 

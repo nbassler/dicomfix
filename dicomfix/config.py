@@ -1,3 +1,6 @@
+from dicomfix.dicomutil import RANGE_SHIFTER_NONE
+
+
 class Config:
     """
     Configuration class that holds all the settings and arguments for the dicomfix tool.
@@ -95,7 +98,7 @@ class Config:
             range_shifter (str): The range shifter value.
 
         Returns:
-            str: either None, RS_2CM or RS_5CM.
+            str: either None (option not given), RANGE_SHIFTER_NONE, RS_2CM or RS_5CM.
         """
         if range_shifter is None:
             return None
@@ -105,6 +108,8 @@ class Config:
         elif range_shifter == "RS5" or range_shifter == "RS_5CM":
             return "RS_5CM"
         elif range_shifter == "NONE":
-            return None
+            # Deliberately not None: modify() gates on truthiness, so returning None here
+            # would be indistinguishable from the option never being given at all.
+            return RANGE_SHIFTER_NONE
         else:
             raise ValueError(f"Invalid range shifter value: {range_shifter}")

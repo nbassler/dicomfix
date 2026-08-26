@@ -5,12 +5,12 @@ Tests exercise individual methods directly on the sample DICOM plan,
 without going through the CLI layer.
 """
 import datetime
-import pytest
 from pathlib import Path
 
-from dicomfix.dicomutil import DicomUtil, MU_MIN
-from dicomfix.dicomexport import DicomExport
+import pytest
 
+from dicomfix.dicomexport import DicomExport
+from dicomfix.dicomutil import MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -152,24 +152,29 @@ class TestRangeShifter:
         with pytest.raises(ValueError):
             du.set_range_shifter("RS_3CM")
 
-    def test_remove_range_shifter(self, du):
-        du.set_range_shifter("RS_2CM")  # add first
-        du.set_range_shifter(None)      # then remove
+    # None, the "NONE" sentinel and the web UI's plain "None" string must all remove it.
+    @pytest.mark.parametrize("removal_value", [None, "NONE", "None", "none"])
+    def test_remove_range_shifter(self, du, removal_value):
+        du.set_range_shifter("RS_2CM")       # add first
+        du.set_range_shifter(removal_value)  # then remove
         for ib in du.dicom.IonBeamSequence:
-            # Either attribute is gone or count is 0
-            assert not hasattr(ib, "RangeShifterSequence") or ib.NumberOfRangeShifters == 0
+            assert not hasattr(ib, "RangeShifterSequence")
+            assert ib.NumberOfRangeShifters == 0
+            # No control point may keep a reference to the removed range shifter
+            for ics in ib.IonControlPointSequence:
+                assert not hasattr(ics, "RangeShifterSettingsSequence")
 
     def test_rs2cm_water_equivalent_thickness(self, du):
         du.set_range_shifter("RS_2CM")
         for ib in du.dicom.IonBeamSequence:
             rsss = ib.IonControlPointSequence[0].RangeShifterSettingsSequence[0]
-            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(57.0)
+            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(22.8)
 
     def test_rs5cm_water_equivalent_thickness(self, du):
         du.set_range_shifter("RS_5CM")
         for ib in du.dicom.IonBeamSequence:
             rsss = ib.IonControlPointSequence[0].RangeShifterSettingsSequence[0]
-            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(22.8)
+            assert rsss.RangeShifterWaterEquivalentThickness == pytest.approx(57.0)
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +280,9 @@ class TestRescaling:
     def test_layer_factors_wrong_count_raises(self, du):
         n_layers = int(du.dicom.IonBeamSequence[0].NumberOfControlPoints / 2)
         wrong_factors = [1.0] * (n_layers + 1)
-        with pytest.raises(Exception):
+        # apply_rescale_factor raises a bare Exception; match= keeps the assertion
+        # specific so an unrelated failure cannot make this test pass silently.
+        with pytest.raises(Exception, match="must match number of energy layers"):
             du.apply_rescale_factor(1.0, layer_factors=wrong_factors)
 
     def test_final_cumulative_weight_unchanged_after_rescale(self, du):

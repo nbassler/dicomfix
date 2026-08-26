@@ -1,9 +1,10 @@
-import sys
 import logging
-from dicomfix.dicomutil import DicomUtil  # Use the new DicomUtil class
-from dicomfix.config_parser import parse_arguments
+import sys
+
 from dicomfix.config import Config
+from dicomfix.config_parser import parse_arguments
 from dicomfix.dicomexport import DicomExport
+from dicomfix.dicomutil import DicomUtil  # Use the new DicomUtil class
 
 logger = logging.getLogger(__name__)
 

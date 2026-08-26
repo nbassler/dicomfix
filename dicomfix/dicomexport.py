@@ -71,13 +71,13 @@ class DicomExport:
             check_total_mu = 0.0
 
             layer_count = 0
-            for i, icp in enumerate(ion_beam.IonControlPointSequence):
+            for icp in ion_beam.IonControlPointSequence:
 
                 nominal_beam_energy = icp.NominalBeamEnergy
 
                 # prescan this layer, whether there are any MUs in any spot
                 wt_sum = 0.0
-                for n, wt in enumerate(icp.ScanSpotMetersetWeights):
+                for wt in icp.ScanSpotMetersetWeights:
                     wt_sum += wt
                 logger.debug(f"{layer_count}  wt_sum {wt_sum:.10}")
                 if wt_sum <= 0.0:  #
@@ -126,7 +126,6 @@ class DicomExport:
         with open(filename, "w") as f:
 
             for j, ion_beam in enumerate(d.IonBeamSequence):  # loop over fields
-                field_count = j
                 final_cumulative_weight = ion_beam.FinalCumulativeMetersetWeight
                 number_of_control_points = ion_beam.NumberOfControlPoints
                 number_of_energy_layers = int(number_of_control_points / 2)
@@ -137,13 +136,13 @@ class DicomExport:
                 # check_total_mu = 0.0
 
                 layer_count = 0
-                for i, icp in enumerate(ion_beam.IonControlPointSequence):
+                for icp in ion_beam.IonControlPointSequence:
 
                     nominal_beam_energy = icp.NominalBeamEnergy
 
                     # prescan this layer, whether there are any MUs in any spot
                     wt_sum = 0.0
-                    for n, wt in enumerate(icp.ScanSpotMetersetWeights):
+                    for wt in icp.ScanSpotMetersetWeights:
                         wt_sum += wt
                     logger.debug(f"{layer_count}  wt_sum {wt_sum:.10}")
                     if wt_sum <= 0.0:  #

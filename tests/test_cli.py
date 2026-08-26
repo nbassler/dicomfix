@@ -6,12 +6,12 @@ test_process.py, verifying both that the command runs and that the resulting
 DICOM file reflects the requested change.
 """
 import subprocess
-import pytest
 from pathlib import Path
+
+import pytest
 
 import dicomfix.main
 from dicomfix.dicomutil import DicomUtil
-
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -159,6 +159,21 @@ def test_range_shifter_rs5(tmp_path):
     du = DicomUtil(str(out))
     for ib in du.dicom.IonBeamSequence:
         assert ib.RangeShifterSequence[0].RangeShifterID == "RS_5CM"
+
+
+def test_range_shifter_none(tmp_path):
+    """-rh=None must actually strip the range shifter (issue #43)."""
+    # PLAN_FILE has no range shifter to begin with, so add one first.
+    with_rs = tmp_path / "with_rs.dcm"
+    out = tmp_path / "out.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-rh=RS2', '-o', str(with_rs)])
+    dicomfix.main.main([str(with_rs), '-rh=None', '-o', str(out)])
+    du = DicomUtil(str(out))
+    for ib in du.dicom.IonBeamSequence:
+        assert not hasattr(ib, "RangeShifterSequence")
+        assert ib.NumberOfRangeShifters == 0
+        for ics in ib.IonControlPointSequence:
+            assert not hasattr(ics, "RangeShifterSettingsSequence")
 
 
 # ---------------------------------------------------------------------------

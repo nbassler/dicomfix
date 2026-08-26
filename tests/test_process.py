@@ -1,10 +1,11 @@
+import logging
 import re
 import subprocess
-import logging
-import pytest
 from pathlib import Path
-import dicomfix.main
 
+import pytest
+
+import dicomfix.main
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,10 @@ def test_call_cmd_inspect():
     fn = str(input_files['plan'])
     with pytest.raises(SystemExit) as e:
         dicomfix.main.main([fn, '-i'])
-        logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
+        logger.info(f"Catching SystemExit with code: {str(e.value):s}")
         assert e.value.code == 0
 
-    logger.info("Catching SystemExit with code: {:s}".format(str(e.value)))
+    logger.info(f"Catching SystemExit with code: {str(e.value):s}")
     assert e.value.code == 0
 
 
