@@ -4,7 +4,9 @@ Unit tests for dicomfix.dicomutil.DicomUtil
 Tests exercise individual methods directly on the sample DICOM plan,
 without going through the CLI layer.
 """
+import copy
 import datetime
+import logging
 from pathlib import Path
 
 import pytest
@@ -13,6 +15,23 @@ from dicomfix.dicomexport import DicomExport
 from dicomfix.dicomutil import MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
+
+
+def make_two_field(du):
+    """Turn the single-field sample plan into a two-field one.
+
+    PLAN_FILE has exactly one beam, which is why the multi-field bugs in issue #45
+    were invisible to the suite. Duplicating the beam and its ReferencedBeamSequence
+    entry gives a plan that exercises the multi-field paths.
+    """
+    d = du.dicom
+    d.IonBeamSequence.append(copy.deepcopy(d.IonBeamSequence[0]))
+    d.IonBeamSequence[1].BeamNumber = 2
+    rbs = d.FractionGroupSequence[0].ReferencedBeamSequence
+    rbs.append(copy.deepcopy(rbs[0]))
+    rbs[1].ReferencedBeamNumber = 2
+    d.FractionGroupSequence[0].NumberOfBeams = 2
+    return du
 
 
 @pytest.fixture
@@ -264,6 +283,66 @@ class TestRescaling:
         du.rescale_dose(orig)
         new = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose
         assert new == pytest.approx(orig, rel=1e-4)
+
+    # --- issue #45 -------------------------------------------------------------
+
+    def test_rescale_dose_rejects_multi_field(self, du):
+        """BeamDose is per field, so a target dose is ambiguous on a multi-field plan."""
+        make_two_field(du)
+        with pytest.raises(ValueError, match="ambiguous"):
+            du.rescale_dose(10.0)
+
+    def test_rescale_dose_multi_field_leaves_plan_untouched(self, du):
+        """The guard must reject before mutating anything."""
+        make_two_field(du)
+        rbs = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence
+        before = [float(rb.BeamDose) for rb in rbs]
+        with pytest.raises(ValueError):
+            du.rescale_dose(10.0)
+        assert [float(rb.BeamDose) for rb in rbs] == pytest.approx(before)
+
+    def test_rescale_dose_rejects_missing_beam_dose(self, du):
+        del du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose
+        with pytest.raises(ValueError, match="no BeamDose"):
+            du.rescale_dose(10.0)
+
+    def test_rescale_dose_rejects_zero_beam_dose(self, du):
+        du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamDose = 0.0
+        with pytest.raises(ValueError, match="0.0000"):
+            du.rescale_dose(10.0)
+
+    def test_rescale_dose_twice_is_reentrant(self, du):
+        """apply_rescale_factor used to corrupt the weight type, breaking any second call.
+
+        The Streamlit UI keeps one DicomUtil in session_state and rescales per edit,
+        so a second rescale is a normal user action, not an edge case.
+        """
+        du.rescale_dose(10.0)
+        du.rescale_dose(12.0)          # used to raise TypeError
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        assert float(rb.BeamDose) == pytest.approx(12.0, rel=1e-4)
+
+    def test_rescale_factor_twice_is_reentrant(self, du):
+        orig = float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+        du.apply_rescale_factor(2.0)
+        du.apply_rescale_factor(3.0)
+        new = float(du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+        assert new == pytest.approx(orig * 6.0, rel=1e-4)
+
+    def test_rescale_dose_reports_dose_factor_and_meterset(self, du, caplog):
+        """The found dose, request, factor and meterset must be reported without -v."""
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        found, mu_before = float(rb.BeamDose), float(rb.BeamMeterset)
+        with caplog.at_level(logging.WARNING, logger="dicomfix.dicomutil"):
+            du.rescale_dose(10.0)
+        text = caplog.text
+        # warning level, so it shows at default verbosity
+        assert all(r.levelno >= logging.WARNING for r in caplog.records if "Rescal" in r.message)
+        assert f"{found:12.4f}" in text          # dose found in the plan
+        assert f"{10.0:12.4f}" in text           # dose requested
+        assert f"{10.0 / found:12.4f}" in text   # factor actually used
+        assert f"{mu_before:12.4f}" in text      # meterset before
+        assert f"{float(rb.BeamMeterset):12.4f}" in text  # meterset after
 
     def test_minimize_plan_no_spot_below_mu_min(self, du):
         du.minimize_plan()

@@ -216,17 +216,62 @@ class DicomUtil:
         """
         Rescale the DICOM plan to a new target dose.
 
+        Single-field plans only. BeamDose (300A,0084) is the dose from one beam for one
+        fraction, so on a multi-field plan "rescale to X Gy(RBE)" is ambiguous: X per field,
+        or X for the whole plan? Rather than guess and silently mis-dose the plan, this
+        refuses. Use apply_rescale_factor() / -rf to scale a multi-field plan explicitly.
+
+        The dose already in the plan may have drifted from earlier manipulation, deliberately
+        or not, and the rescale factor is derived from it. The dose found, the dose requested,
+        the resulting factor and the meterset before and after are therefore reported at
+        warning level, so they appear without needing -v.
+
         Args:
             new_dose (float): The new target dose in Gy(RBE) to which the plan should be rescaled.
             layer_factors (list of float, optional): Optional list of scaling factors for each energy layer.
                 If provided, these factors are applied to each corresponding energy layer in the plan.
                 The length of the list should match the number of real energy layers in the DICOM plan.
+
+        Raises:
+            ValueError: if the plan has more than one field, or has no usable beam dose.
         """
         d = self.dicom
-        for j, _ib in enumerate(d.IonBeamSequence):
-            scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
-            logger.info(f"Rescaling dose to {new_dose:.2f} Gy(RBE)")
-            self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
+        rbs = d.FractionGroupSequence[0].ReferencedBeamSequence
+
+        if len(rbs) > 1:
+            raise ValueError(
+                f"Cannot rescale to a target dose: this plan has {len(rbs)} fields. "
+                "BeamDose is the dose of a single field, so the requested dose is ambiguous "
+                "(per field, or for the whole plan?). Use -rf to apply an explicit factor instead.")
+
+        if "BeamDose" not in rbs[0]:
+            raise ValueError(
+                "Cannot rescale to a target dose: this plan has no BeamDose (300A,0084) to scale from. "
+                "Use -rf to apply an explicit factor instead.")
+
+        current_dose = float(rbs[0].BeamDose)
+        if current_dose <= 0.0:
+            raise ValueError(
+                f"Cannot rescale to a target dose: the dose found in this plan is {current_dose:.4f} Gy(RBE). "
+                "Use -rf to apply an explicit factor instead.")
+
+        scale_factor = new_dose / current_dose
+        meterset_before = float(rbs[0].BeamMeterset) if "BeamMeterset" in rbs[0] else None
+
+        # Report before acting, so the operator still sees the intent if the rescale fails.
+        logger.warning(HLINE)
+        logger.warning("Rescaling dose:")
+        logger.warning(f"Dose found in plan             : {current_dose:12.4f}  Gy(RBE)")
+        logger.warning(f"Dose requested                 : {new_dose:12.4f}  Gy(RBE)")
+        logger.warning(f"Rescale factor to be applied   : {scale_factor:12.4f}")
+        if meterset_before is not None:
+            logger.warning(f"Beam Meterset before           : {meterset_before:12.4f}  MU")
+
+        self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
+
+        if meterset_before is not None:
+            logger.warning(f"Beam Meterset after            : {float(rbs[0].BeamMeterset):12.4f}  MU")
+        logger.warning(HLINE)
 
     def apply_rescale_factor(self, rescale_factor=1.0, layer_factors=None):
         """
@@ -297,10 +342,12 @@ class DicomUtil:
                 layer_factor = 1.0
 
                 # Check if this is a real energy layer (non-repeated one)
-                # If there are non-zero weights, this is a real energy layer
-                _msweights = icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list) else [
-                    icp.ScanSpotMetersetWeights]
-                if any(w > 0.0 for w in _msweights):
+                # If there are non-zero weights, this is a real energy layer.
+                # Reuse original_spot_weights above: it already handles the single-spot case via
+                # NumberOfScanSpotPositions. Testing isinstance(..., list) would be wrong here,
+                # because after a previous rescale pydicom stores these as MultiValue, which is
+                # not a list subclass.
+                if any(w > 0.0 for w in original_spot_weights):
                     # Apply the correct factor for the real energy layer
                     if layer_factors:
                         logger.info(
@@ -753,8 +800,10 @@ class DicomUtil:
                     ib.FinalCumulativeMetersetWeight
                 icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
 
-                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
-                           else [icp.ScanSpotMetersetWeights])
+                # NumberOfScanSpotPositions, not isinstance(..., list): pydicom stores these as
+                # MultiValue after a rescale, and MultiValue is not a list subclass.
+                cum += sum([icp.ScanSpotMetersetWeights] if icp.NumberOfScanSpotPositions == 1
+                           else icp.ScanSpotMetersetWeights)
 
     def save(self, output_file):
         """
