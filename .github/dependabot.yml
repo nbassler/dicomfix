@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # GitHub Actions versions. This is where the real value is right now:
+  # python-app.yml still pins actions/checkout@v3 and actions/setup-python@v3,
+  # while the other workflows are already on v4/v5.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Python dependencies declared in pyproject.toml.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-packages:
+        patterns:
+          - "*"
