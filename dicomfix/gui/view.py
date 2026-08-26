@@ -1,10 +1,9 @@
-import os
 import logging
+import os
 
 from PyQt6 import uic
-from PyQt6.QtWidgets import QMainWindow, QFileDialog, QAbstractItemView
-from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QStringListModel
+from PyQt6.QtWidgets import QAbstractItemView, QFileDialog, QMainWindow, QMessageBox
 
 current_directory = os.path.dirname(os.path.realpath(__file__))
 
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class UiMainWindow(QMainWindow):
     def __init__(self):
-        super(UiMainWindow, self).__init__()
+        super().__init__()
         ui_path = os.path.join(current_directory, 'main_window.ui')
         uic.loadUi(ui_path, self)
         self.setWindowTitle("DicomFix")

@@ -5,12 +5,12 @@ Tests exercise individual methods directly on the sample DICOM plan,
 without going through the CLI layer.
 """
 import datetime
-import pytest
 from pathlib import Path
 
-from dicomfix.dicomutil import DicomUtil, MU_MIN
-from dicomfix.dicomexport import DicomExport
+import pytest
 
+from dicomfix.dicomexport import DicomExport
+from dicomfix.dicomutil import MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -280,7 +280,9 @@ class TestRescaling:
     def test_layer_factors_wrong_count_raises(self, du):
         n_layers = int(du.dicom.IonBeamSequence[0].NumberOfControlPoints / 2)
         wrong_factors = [1.0] * (n_layers + 1)
-        with pytest.raises(Exception):
+        # apply_rescale_factor raises a bare Exception; match= keeps the assertion
+        # specific so an unrelated failure cannot make this test pass silently.
+        with pytest.raises(Exception, match="must match number of energy layers"):
             du.apply_rescale_factor(1.0, layer_factors=wrong_factors)
 
     def test_final_cumulative_weight_unchanged_after_rescale(self, du):

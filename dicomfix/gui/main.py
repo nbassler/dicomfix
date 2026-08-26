@@ -1,31 +1,33 @@
-import sys
-import logging
 import argparse
+import logging
+import sys
 
-from PyQt6.QtWidgets import QApplication
-
-from view import MainWindowQtView
-from model import MainModel
 from controller import MainController
+from model import MainModel
+from PyQt6.QtWidgets import QApplication
+from view import MainWindowQtView
 
 _version_ = "0.0.1"
 
 logger = logging.getLogger(__name__)
 
 
-def main(args=sys.argv[1:]):
+def main(args=None):
+    if args is None:
+        args = sys.argv[1:]
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbosity', action='count', help="increase output verbosity", default=0)
     parser.add_argument('-V', '--version', action='version', version=_version_)
-    args = parser.parse_args(sys.argv[1:])
+    parsed_args = parser.parse_args(args)
 
     # set logging level
-    if args.verbosity == 1:
-        logger.basicConfig(level=logger.INFO)
-    elif args.verbosity > 1:
-        logger.basicConfig(level=logger.DEBUG)
+    if parsed_args.verbosity == 1:
+        logging.basicConfig(level=logging.INFO)
+    elif parsed_args.verbosity > 1:
+        logging.basicConfig(level=logging.DEBUG)
     else:
-        logger.basicConfig()
+        logging.basicConfig()
 
     app = QApplication(sys.argv)
     view = MainWindowQtView()
@@ -37,4 +39,4 @@ def main(args=sys.argv[1:]):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

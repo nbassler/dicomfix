@@ -12,8 +12,11 @@ from streamlit.testing.v1 import AppTest
 
 from dicomfix.dicomutil import DicomUtil
 
-APP_PATH = Path("dicomfix/web/app.py")
-PLAN_FILE = Path("res/Plan5.5.dcm")
+# AppTest.from_file() resolves relative paths against the *calling file's* directory,
+# not the working directory, so both paths are anchored on the repo root explicitly.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+APP_PATH = REPO_ROOT / "dicomfix" / "web" / "app.py"
+PLAN_FILE = REPO_ROOT / "res" / "Plan5.5.dcm"
 
 
 @pytest.fixture

@@ -6,12 +6,12 @@ test_process.py, verifying both that the command runs and that the resulting
 DICOM file reflects the requested change.
 """
 import subprocess
-import pytest
 from pathlib import Path
+
+import pytest
 
 import dicomfix.main
 from dicomfix.dicomutil import DicomUtil
-
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 

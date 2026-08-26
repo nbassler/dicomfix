@@ -6,13 +6,14 @@ with a focus on proton therapy treatment plans. It includes functionality
 for loading DICOM files, rescaling spot weights, and managing dose adjustments.
 """
 
-import logging
 import copy
 import datetime
-import pydicom
+import logging
 import random
 
+import pydicom
 from pydicom.uid import generate_uid
+
 # from dicomfix.dicom_comparator import compare_dicoms  # If you plan to use this in the future
 
 
@@ -166,7 +167,7 @@ class DicomUtil:
             layer_factors = []
 
             try:
-                with open(config.weights, 'r') as f:
+                with open(config.weights) as f:
                     layer_factors = [float(line.strip()) for line in f if line.strip()]
                 logger.info(f"Read {len(layer_factors)} layer factors from '{config.weights}'")
             except ValueError:
@@ -196,13 +197,13 @@ class DicomUtil:
             beam_meterset = d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamMeterset
             meterset_per_weight = beam_meterset / final_original_cumulative_weight
 
-            for i, icp in enumerate(ib.IonControlPointSequence):
+            for icp in ib.IonControlPointSequence:
                 if icp.NumberOfScanSpotPositions == 1:
                     weights = [icp.ScanSpotMetersetWeights]
                 else:
                     weights = icp.ScanSpotMetersetWeights
 
-                for k, w in enumerate(weights):
+                for w in weights:
                     if w > 0.0 and ((w * meterset_per_weight) < mu_lowest):
                         mu_lowest = w * meterset_per_weight
 
@@ -222,7 +223,7 @@ class DicomUtil:
                 The length of the list should match the number of real energy layers in the DICOM plan.
         """
         d = self.dicom
-        for j, ib in enumerate(d.IonBeamSequence):
+        for j, _ib in enumerate(d.IonBeamSequence):
             scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
             logger.info(f"Rescaling dose to {new_dose:.2f} Gy(RBE)")
             self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
@@ -742,7 +743,7 @@ class DicomUtil:
             ib.ReferencedToleranceTableNumber = 1
 
             cum = 0.0
-            for i, icp in enumerate(ib.IonControlPointSequence):  # Loop over energy layers
+            for icp in ib.IonControlPointSequence:  # Loop over energy layers
                 if not hasattr(icp, "ReferencedDoseReferenceSequence"):
                     icp.ReferencedDoseReferenceSequence = [pydicom.Dataset()]
 

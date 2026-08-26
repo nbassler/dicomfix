@@ -1,7 +1,8 @@
-import streamlit as st
-from dicomfix.dicomutil import DicomUtil
 import io
 
+import streamlit as st
+
+from dicomfix.dicomutil import DicomUtil
 
 # Create two columns for layout
 col1, col2 = st.columns([3, 1])

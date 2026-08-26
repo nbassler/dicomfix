@@ -4,7 +4,9 @@ Unit tests for dicomfix.config.Config
 Tests cover the static/instance parsing methods without requiring a DICOM file.
 """
 import argparse
+
 import pytest
+
 from dicomfix.config import Config
 from dicomfix.dicomutil import RANGE_SHIFTER_NONE
 
