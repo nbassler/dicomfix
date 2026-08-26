@@ -538,3 +538,21 @@ class TestSnout:
         window.load_plan(str(PLAN_FILE))
         window.doubleSpinBox_nozzle_position.setValue(30.0)
         assert "-sp=30" in window.settings.to_args("in.dcm", "out.dcm")
+
+
+class TestIcon:
+    def test_icon_file_ships_with_the_package(self):
+        from dicomfix.gui.window import ICON_FILE, resource_path
+        assert Path(resource_path(ICON_FILE)).is_file()
+
+    def test_icon_has_the_sizes_windows_wants(self):
+        """Explorer, the taskbar and alt-tab all pick different sizes out of the .ico."""
+        from PIL import Image
+
+        from dicomfix.gui.window import ICON_FILE, resource_path
+        sizes = Image.open(resource_path(ICON_FILE)).info["sizes"]
+        for wanted in ((16, 16), (32, 32), (48, 48), (256, 256)):
+            assert wanted in sizes, f"icon is missing the {wanted[0]}px variant"
+
+    def test_window_actually_sets_it(self, window):
+        assert not window.windowIcon().isNull()

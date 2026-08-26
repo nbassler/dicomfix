@@ -53,7 +53,7 @@ dicomfix-gui = "dicomfix.gui.main:main"
 include = ["dicomfix*"]
 
 [tool.setuptools.package-data]
-"dicomfix.gui" = ["*.ui"]
+"dicomfix.gui" = ["*.ui", "*.ico", "*.png"]
 
 [project.optional-dependencies]
 gui = ["pyqt6>=6.5"]

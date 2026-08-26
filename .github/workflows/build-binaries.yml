@@ -37,7 +37,9 @@ jobs:
       # and then fails to find its layout.
       run: |
         pyinstaller --onefile --windowed --name dicomfix-gui `
+          --icon dicomfix/gui/dicomfix.ico `
           --add-data "dicomfix/gui/main_window.ui;dicomfix/gui" `
+          --add-data "dicomfix/gui/dicomfix.ico;dicomfix/gui" `
           dicomfix/gui/main.py
 
     - name: Check the GUI binary starts and found its layout
@@ -82,6 +84,7 @@ jobs:
       run: |
         pyinstaller --onefile --windowed --name dicomfix-gui \
           --add-data "dicomfix/gui/main_window.ui:dicomfix/gui" \
+          --add-data "dicomfix/gui/dicomfix.ico:dicomfix/gui" \
           dicomfix/gui/main.py
 
     - name: Check the GUI binary starts and found its layout

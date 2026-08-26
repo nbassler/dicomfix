@@ -19,7 +19,7 @@ import os
 import sys
 
 from PyQt6 import uic
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtGui import QAction, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -66,6 +66,7 @@ _EDIT_WIDGETS = (
 )
 
 APP_NAME = "DicomFix"
+ICON_FILE = "dicomfix.ico"
 
 
 def resource_path(name):
@@ -132,6 +133,7 @@ class MainWindow(QMainWindow):
         self._linking = False        # guards the factor <-> dose link against feedback
 
         self._set_title()
+        self._set_icon()
         self._prepare_widgets()
         self._connect()
         self._set_editing_enabled(False)
@@ -172,6 +174,19 @@ class MainWindow(QMainWindow):
         if filename:
             title += f" - {os.path.basename(filename)}"
         self.setWindowTitle(title)
+
+    def _set_icon(self):
+        """Icon for the title bar, taskbar and alt-tab.
+
+        The frozen Windows build additionally embeds this file in the exe via
+        PyInstaller's --icon, which is what Explorer shows; this call covers the running
+        window on every platform.
+        """
+        path = resource_path(ICON_FILE)
+        if os.path.exists(path):
+            self.setWindowIcon(QIcon(path))
+        else:
+            logger.debug("window icon not found at %s", path)
 
     def _prepare_widgets(self):
         # dicomfix cannot write PatientSupportAngle, so the couch is shown greyed out
