@@ -2,10 +2,11 @@ import argparse
 import logging
 import sys
 
-from controller import MainController
-from model import MainModel
 from PyQt6.QtWidgets import QApplication
-from view import MainWindowQtView
+
+from dicomfix.gui.controller import MainController
+from dicomfix.gui.model import MainModel
+from dicomfix.gui.view import MainWindowQtView
 
 _version_ = "0.0.1"
 
