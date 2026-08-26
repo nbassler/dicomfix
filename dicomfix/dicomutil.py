@@ -14,6 +14,8 @@ import random
 import pydicom
 from pydicom.uid import generate_uid
 
+from dicomfix import verify
+
 # from dicomfix.dicom_comparator import compare_dicoms  # If you plan to use this in the future
 
 
@@ -160,7 +162,21 @@ class DicomUtil:
         logger.info(f"New plan intent: {d.PlanIntent}")
 
     def rescale_plan(self, config):
-        """Rescale the DICOM plan based on the provided settings."""
+        """
+        Rescale the DICOM plan based on the provided settings.
+
+        This is the entry point used by modify(), so it is where the CLI and the web UI
+        see rescaling failures surface.
+
+        Args:
+            config (Config): Parsed settings; the -rd, -rf, -rm and -w options are read.
+
+        Raises:
+            ValueError: For invalid or contradictory options, a non-positive rescale
+                factor, an unusable beam dose, or a malformed plan.
+            verify.RescaleVerificationError: If the independent check finds the rescaled
+                plan does not deliver what was requested. The plan must not be saved.
+        """
         layer_factors = None
         if config.weights:
             # Read the weights from the CSV file
@@ -216,17 +232,64 @@ class DicomUtil:
         """
         Rescale the DICOM plan to a new target dose.
 
+        Single-field plans only. BeamDose (300A,0084) is the dose from one beam for one
+        fraction, so on a multi-field plan "rescale to X Gy(RBE)" is ambiguous: X per field,
+        or X for the whole plan? Rather than guess and silently mis-dose the plan, this
+        refuses. Use apply_rescale_factor() / -rf to scale a multi-field plan explicitly.
+
+        The dose already in the plan may have drifted from earlier manipulation, deliberately
+        or not, and the rescale factor is derived from it. The dose found, the dose requested,
+        the resulting factor and the meterset before and after are therefore reported at
+        warning level, so they appear without needing -v.
+
         Args:
             new_dose (float): The new target dose in Gy(RBE) to which the plan should be rescaled.
             layer_factors (list of float, optional): Optional list of scaling factors for each energy layer.
                 If provided, these factors are applied to each corresponding energy layer in the plan.
                 The length of the list should match the number of real energy layers in the DICOM plan.
+
+        Raises:
+            ValueError: if the plan has more than one field, or has no usable beam dose.
+            verify.RescaleVerificationError: propagated from apply_rescale_factor() if the
+                independent check finds the result does not match what was requested.
         """
         d = self.dicom
-        for j, _ib in enumerate(d.IonBeamSequence):
-            scale_factor = new_dose / d.FractionGroupSequence[0].ReferencedBeamSequence[j].BeamDose
-            logger.info(f"Rescaling dose to {new_dose:.2f} Gy(RBE)")
-            self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
+        rbs = d.FractionGroupSequence[0].ReferencedBeamSequence
+
+        if len(rbs) > 1:
+            raise ValueError(
+                f"Cannot rescale to a target dose: this plan has {len(rbs)} fields. "
+                "BeamDose is the dose of a single field, so the requested dose is ambiguous "
+                "(per field, or for the whole plan?). Use -rf to apply an explicit factor instead.")
+
+        if "BeamDose" not in rbs[0]:
+            raise ValueError(
+                "Cannot rescale to a target dose: this plan has no BeamDose (300A,0084) to scale from. "
+                "Use -rf to apply an explicit factor instead.")
+
+        current_dose = float(rbs[0].BeamDose)
+        if current_dose <= 0.0:
+            raise ValueError(
+                f"Cannot rescale to a target dose: the dose found in this plan is {current_dose:.4f} Gy(RBE). "
+                "Use -rf to apply an explicit factor instead.")
+
+        scale_factor = new_dose / current_dose
+        meterset_before = float(rbs[0].BeamMeterset) if "BeamMeterset" in rbs[0] else None
+
+        # Report before acting, so the operator still sees the intent if the rescale fails.
+        logger.warning(HLINE)
+        logger.warning("Rescaling dose:")
+        logger.warning(f"Dose found in plan             : {current_dose:12.4f}  Gy(RBE)")
+        logger.warning(f"Dose requested                 : {new_dose:12.4f}  Gy(RBE)")
+        logger.warning(f"Rescale factor to be applied   : {scale_factor:12.4f}")
+        if meterset_before is not None:
+            logger.warning(f"Beam Meterset before           : {meterset_before:12.4f}  MU")
+
+        self.apply_rescale_factor(scale_factor, layer_factors=layer_factors)
+
+        if meterset_before is not None:
+            logger.warning(f"Beam Meterset after            : {float(rbs[0].BeamMeterset):12.4f}  MU")
+        logger.warning(HLINE)
 
     def apply_rescale_factor(self, rescale_factor=1.0, layer_factors=None):
         """
@@ -244,9 +307,30 @@ class DicomUtil:
                 the number of real energy layers in the plan.
 
         Raises:
-            ValueError: If the number of layer factors does not match the number of energy layers.
+            ValueError: If the rescale factor is not positive, if any layer factor is
+                negative, or if the number of layer factors does not match the number of
+                energy layers. Also raised for a malformed plan whose IonBeamSequence and
+                ReferencedBeamSequence disagree in length.
+            verify.RescaleVerificationError: If the independent check at the end of this
+                method finds that the rescaled plan does not deliver what was requested.
+                The plan is left modified but must not be used; callers should report the
+                message, which lists every failed check.
         """
         d = self.dicom
+
+        # A non-positive factor produces a plan with zero or negative MU, which is not
+        # deliverable. Refuse rather than write such a file out.
+        if rescale_factor <= 0.0:
+            raise ValueError(
+                f"Rescale factor must be positive, got {rescale_factor}. "
+                "A zero or negative factor would produce a plan with no deliverable MU.")
+
+        if layer_factors and any(lf < 0.0 for lf in layer_factors):
+            raise ValueError("Layer factors must not be negative.")
+
+        # Measured before anything is touched, so the independent check at the end of this
+        # method has something to compare against. See dicomfix/verify.py.
+        _before = verify.snapshot(d)
 
         layer_factors_len = 0
 
@@ -297,10 +381,12 @@ class DicomUtil:
                 layer_factor = 1.0
 
                 # Check if this is a real energy layer (non-repeated one)
-                # If there are non-zero weights, this is a real energy layer
-                _msweights = icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list) else [
-                    icp.ScanSpotMetersetWeights]
-                if any(w > 0.0 for w in _msweights):
+                # If there are non-zero weights, this is a real energy layer.
+                # Reuse original_spot_weights above: it already handles the single-spot case via
+                # NumberOfScanSpotPositions. Testing isinstance(..., list) would be wrong here,
+                # because after a previous rescale pydicom stores these as MultiValue, which is
+                # not a list subclass.
+                if any(w > 0.0 for w in original_spot_weights):
                     # Apply the correct factor for the real energy layer
                     if layer_factors:
                         logger.info(
@@ -386,6 +472,46 @@ class DicomUtil:
                         f"{original_beam_dose:14.2f}  {new_beam_dose:14.2f}  Gy(RBE)")
             logger.info(HLINE)
         # end of j,ion_beam loop over IonBeamSequence
+
+        self._rescale_prescription_dose(rescale_factor)
+
+        # Independent check that the plan now delivers what was asked for. Deliberately
+        # recomputed from the DICOM tags by code that shares nothing with the above, so a
+        # bug introduced here cannot hide itself. Raises rather than returning a bad plan.
+        # With per-layer factors no single factor applies, so only the integrity checks run.
+        verify.verify_rescale(_before, d, None if layer_factors else rescale_factor, mu_min=MU_MIN)
+
+    def _rescale_prescription_dose(self, rescale_factor):
+        """
+        Scale TargetPrescriptionDose (300A,0026) along with the beam doses.
+
+        The prescription is plan-level, so it is scaled once rather than per field.
+        Leaving it untouched would produce a plan whose stated prescription contradicts
+        the dose its beams actually deliver.
+
+        Only TargetPrescriptionDose is scaled. Other dose-valued elements in
+        DoseReferenceSequence are constraints rather than delivered dose, so they are
+        deliberately left alone and reported instead.
+
+        Args:
+            rescale_factor (float): The same factor that was applied to the beam doses.
+        """
+        d = self.dicom
+        # Dose-valued, but a limit rather than something the plan delivers.
+        _constraints = ("DeliveryMaximumDose", "DeliveryWarningDose", "TargetMaximumDose",
+                        "TargetMinimumDose", "OrganAtRiskMaximumDose", "OrganAtRiskLimitDose",
+                        "OrganAtRiskFullVolumeDose")
+
+        for dr in d.get("DoseReferenceSequence", []):
+            if "TargetPrescriptionDose" in dr:
+                original = float(dr.TargetPrescriptionDose)
+                dr.TargetPrescriptionDose = original * rescale_factor
+                logger.warning(f"Target Prescription Dose       : {original:12.4f} ->"
+                               f"{float(dr.TargetPrescriptionDose):12.4f}  Gy(RBE)")
+
+            left_alone = [name for name in _constraints if name in dr]
+            if left_alone:
+                logger.warning(f"NOT rescaled (dose constraints) : {', '.join(left_alone)}")
 
     def duplicate_fields(self, n):
         """
@@ -753,8 +879,10 @@ class DicomUtil:
                     ib.FinalCumulativeMetersetWeight
                 icp.ReferencedDoseReferenceSequence[0].ReferencedDoseReferenceNumber = 1
 
-                cum += sum(icp.ScanSpotMetersetWeights if isinstance(icp.ScanSpotMetersetWeights, list)
-                           else [icp.ScanSpotMetersetWeights])
+                # NumberOfScanSpotPositions, not isinstance(..., list): pydicom stores these as
+                # MultiValue after a rescale, and MultiValue is not a list subclass.
+                cum += sum([icp.ScanSpotMetersetWeights] if icp.NumberOfScanSpotPositions == 1
+                           else icp.ScanSpotMetersetWeights)
 
     def save(self, output_file):
         """
