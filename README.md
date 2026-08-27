@@ -5,7 +5,9 @@
 [![Build Binaries](https://github.com/nbassler/dicomfix/actions/workflows/build-binaries.yml/badge.svg)](https://github.com/nbassler/dicomfix/actions/workflows/build-binaries.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Script for manipulating dicom plans
+Script and GUI for manipulating dicom plans
+
+<img width="889" height="819" alt="signal-2026-08-27-19-27-39-374_002" src="https://github.com/user-attachments/assets/5a7f603e-63bb-40d9-bae5-e3ba56a1aafb" />
 
 
 ```console
