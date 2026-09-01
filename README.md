@@ -75,6 +75,9 @@ options:
   -rl, --repeat_layers REPEAT_LAYERS
                         Repeat the energy layer sequence of each field n times, for depth dose curve
                         scanning. Plan MU and dose grow by a factor n.
+  -dl, --delay_layer DELAY_LAYER
+                        Insert a synthetic delay layer of this many MU between layer repetitions, so a
+                        stepper has time to move. Requires -rl.
   -v, --verbosity       Give more output. Option is additive, can be used up to 3 times
   -V, --version         show program's version number and exit
 ```

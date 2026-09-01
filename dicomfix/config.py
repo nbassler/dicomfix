@@ -45,6 +45,7 @@ class Config:
         self.range_shifter = self.parse_range_shifter(parsed_args.range_shifter)
         self.repainting = parsed_args.repainting
         self.repeat_layers = parsed_args.repeat_layers
+        self.delay_layer = parsed_args.delay_layer
 
     @staticmethod
     def parse_angles(angles):

@@ -78,6 +78,9 @@ def parse_arguments(args=None):
     parser.add_argument('-rl', '--repeat_layers', type=int, default=None,
                         help='Repeat the energy layer sequence of each field n times, for depth dose '
                              'curve scanning. Plan MU and dose grow by a factor n.')
+    parser.add_argument('-dl', '--delay_layer', type=float, default=None,
+                        help='Insert a synthetic delay layer of this many MU between layer repetitions, '
+                             'so a stepper has time to move. Requires -rl.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')

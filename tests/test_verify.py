@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from dicomfix.dicomutil import MU_MIN, DicomUtil
+from dicomfix.dicomutil import DELAY_SPOT_POSITION, MU_MIN, DicomUtil
 from dicomfix.verify import (
     GEOMETRY_TOLERANCE,
     METERSET_TOLERANCE,
@@ -414,6 +414,62 @@ class TestLayerRepeat:
         icps[-1].ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = 0.5
         with pytest.raises(PlanVerificationError, match="dose reference coefficient"):
             verify_layer_repeat(before, du.dicom, 2)
+
+    @pytest.mark.parametrize("repeats", [2, 4, 25])
+    def test_honest_delay_layers_pass(self, du, repeats):
+        before = snapshot(du.dicom)
+        du.repeat_layers(repeats, delay_mu=10.0)
+        verify_layer_repeat(before, du.dicom, repeats,
+                            delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_delay_layer_drifted_towards_field_centre(self, du):
+        """A delay spot near the centre is a short magnet sweep, so it buys no time."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(4, delay_mu=10.0)
+        delay = next(icp for icp in first_beam(du).IonControlPointSequence
+                     if icp.NumberOfScanSpotPositions == 1)
+        delay.ScanSpotPositionMap = [-10.0, -10.0]
+        with pytest.raises(PlanVerificationError, match="positions"):
+            verify_layer_repeat(before, du.dicom, 4,
+                                delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_delay_spot_with_wrong_meterset(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(4, delay_mu=10.0)
+        delay = next(icp for icp in first_beam(du).IonControlPointSequence
+                     if icp.NumberOfScanSpotPositions == 1)
+        delay.ScanSpotMetersetWeights = [float(delay.ScanSpotMetersetWeights) * 0.5]
+        with pytest.raises(PlanVerificationError, match="original meterset"):
+            verify_layer_repeat(before, du.dicom, 4,
+                                delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_delay_layer_at_the_wrong_energy(self, du):
+        """The delay must sit at the following layer's energy, not some other one."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(4, delay_mu=10.0)
+        delay = next(icp for icp in first_beam(du).IonControlPointSequence
+                     if icp.NumberOfScanSpotPositions == 1)
+        delay.NominalBeamEnergy = float(delay.NominalBeamEnergy) + 20.0
+        with pytest.raises(PlanVerificationError, match="energies"):
+            verify_layer_repeat(before, du.dicom, 4,
+                                delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_beam_meterset_ignoring_the_delay_mu(self, du):
+        """The plan would then understate what it delivers by the whole delay budget."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(4, delay_mu=10.0)
+        referenced_beam(du).BeamMeterset = before["beams"][0]["beam_meterset"] * 4
+        with pytest.raises(PlanVerificationError, match="BeamMeterset"):
+            verify_layer_repeat(before, du.dicom, 4,
+                                delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_missing_delay_layers(self, du):
+        """Repetition without the delays it was asked for: the gaps are simply absent."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(4)
+        with pytest.raises(PlanVerificationError, match="spot count"):
+            verify_layer_repeat(before, du.dicom, 4,
+                                delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
 
     def test_rescale_error_is_a_plan_error(self):
         """GUI and callers catch the base class, so this relationship has to hold."""

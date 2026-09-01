@@ -285,6 +285,16 @@ def verify_rescale(before, dicom, rescale_factor=None, mu_min=None, tolerance=ME
                 f"tolerance {tolerance:.1e}, all checks passed.")
 
 
+def _tiled(block, gap, repeats):
+    """One block per repetition, with the gap contents in each of the repeats-1 gaps."""
+    out = []
+    for repetition in range(repeats):
+        out += block
+        if repetition < repeats - 1:
+            out += gap
+    return out
+
+
 def _sequence_failures(dicom):
     """Structural checks on the control point sequences of an expanded plan.
 
@@ -333,7 +343,8 @@ def _sequence_failures(dicom):
     return failures
 
 
-def verify_layer_repeat(before, dicom, repeats, tolerance=METERSET_TOLERANCE):
+def verify_layer_repeat(before, dicom, repeats, delay_mu=None, delay_position=None,
+                        tolerance=METERSET_TOLERANCE):
     """
     Check that a plan whose layers were repeated delivers the original pattern n times.
 
@@ -342,10 +353,21 @@ def verify_layer_repeat(before, dicom, repeats, tolerance=METERSET_TOLERANCE):
     tiled `repeats` times, spot by spot. Positions and energies are compared the same
     way, since a repetition which perturbed either would no longer be a repetition.
 
+    With delay_mu, each of the repeats - 1 gaps must hold exactly one delay layer: a
+    single spot of delay_mu at delay_position followed by its zeroed twin, both at the
+    energy of the layer which follows the gap. A delay layer which drifted towards the
+    field centre, lost its meterset or changed the energy would not buy the time it
+    exists for, so all three are checked rather than only the plan total.
+
     Args:
         before (dict): Result of snapshot() taken before the layers were repeated.
         dicom (pydicom.Dataset): The plan after expansion. It is not modified.
         repeats (int): How many times the layer sequence is now delivered.
+        delay_mu (float, optional): Monitor units of the delay spot in each gap. None
+            means no delay layers were requested.
+        delay_position (tuple of float, optional): Where the delay spot must sit, (x, y)
+            in mm. Passed in rather than known here, so this module stays independent of
+            the code it checks.
         tolerance (float): Relative tolerance for meterset quantities. Positions and
             energies always use GEOMETRY_TOLERANCE regardless of this.
 
@@ -361,28 +383,41 @@ def verify_layer_repeat(before, dicom, repeats, tolerance=METERSET_TOLERANCE):
     for j, (b, a) in enumerate(zip(before["beams"], after["beams"])):
         where = f"field {j}"
 
-        # The spot pattern, tiled. Checked per spot rather than on the total: a total can
-        # be right while the pattern underneath it has been reordered or reweighted.
-        want_mu = b["spot_mu"] * repeats
+        # What each gap between repetitions must contain: one delay layer, which is a
+        # control point pair holding a single spot of delay_mu and its zeroed twin, at
+        # the given position, carrying the energy of the layer which follows it. Built
+        # into the expected lists rather than special-cased afterwards, so the delay
+        # layers are checked by exactly the same comparisons as everything else.
+        gaps = repeats - 1
+        gap_mu, gap_positions, gap_energies = [], [], []
+        if delay_mu is not None and gaps > 0:
+            gap_mu = [delay_mu, 0.0]
+            gap_positions = list(delay_position) * 2 if delay_position is not None else []
+            # The layer which follows a gap is the first layer of the next repetition.
+            gap_energies = [b["energies"][0]] * 2
+
+        # The spot pattern. Checked per spot rather than on the total: a total can be
+        # right while the pattern underneath it has been reordered or reweighted.
+        want_mu = _tiled(b["spot_mu"], gap_mu, repeats)
         _check(len(a["spot_mu"]) == len(want_mu), failures,
                f"{where}: spot count is {len(a['spot_mu'])}, expected {len(want_mu)} "
-               f"({len(b['spot_mu'])} x {repeats})")
+               f"({len(b['spot_mu'])} x {repeats} plus {gaps} delay layer(s))")
         _check(all(_close(x, y, tolerance) for x, y in zip(a["spot_mu"], want_mu)), failures,
                f"{where}: repeated spots do not deliver the original meterset")
 
-        want_positions = b["positions"] * repeats
+        want_positions = _tiled(b["positions"], gap_positions, repeats)
         _check(len(a["positions"]) == len(want_positions)
                and all(_close(x, y, GEOMETRY_TOLERANCE)
                        for x, y in zip(a["positions"], want_positions)),
                failures, f"{where}: spot positions were modified by layer repetition")
 
-        want_energies = b["energies"] * repeats
+        want_energies = _tiled(b["energies"], gap_energies, repeats)
         _check(len(a["energies"]) == len(want_energies)
                and all(_close(x, y, GEOMETRY_TOLERANCE)
                        for x, y in zip(a["energies"], want_energies)),
                failures, f"{where}: beam energies were modified by layer repetition")
 
-        want_meterset = b["beam_meterset"] * repeats
+        want_meterset = b["beam_meterset"] * repeats + gaps * (delay_mu or 0.0)
         _check(_close(a["beam_meterset"], want_meterset, tolerance), failures,
                f"{where}: BeamMeterset {a['beam_meterset']:.6f} MU, "
                f"expected {want_meterset:.6f} MU")
@@ -395,6 +430,8 @@ def verify_layer_repeat(before, dicom, repeats, tolerance=METERSET_TOLERANCE):
                f"sum of its spots, {got_total:.6f} MU")
 
         if b["beam_dose"] is not None and a["beam_dose"] is not None:
+            # Delay layers deliberately do not count towards the stated dose: their MU
+            # lands far out in the field, not at the dose reference point.
             want_dose = b["beam_dose"] * repeats
             _check(_close(a["beam_dose"], want_dose, tolerance), failures,
                    f"{where}: BeamDose {a['beam_dose']:.6f}, expected {want_dose:.6f} Gy(RBE)")

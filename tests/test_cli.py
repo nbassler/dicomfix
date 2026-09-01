@@ -236,6 +236,26 @@ def test_repeat_layers_after_geometry_options(tmp_path):
         assert float(icp.TableTopVerticalPosition) == pytest.approx(10.0)
 
 
+def test_delay_layers_are_inserted_between_repetitions(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-dl=10', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    ib = d.IonBeamSequence[0]
+    # 3 repetitions, so 2 gaps, each holding a two-control-point delay layer
+    assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 3 + 2 * 2
+    rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3 + 2 * 10.0)
+
+
+def test_delay_layer_without_repeat_layers_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="repeat_layers"):
+        dicomfix.main.main([str(PLAN_FILE), '-dl=10', '-o', str(out)])
+
+
 def test_repeat_layers_with_duplicate_fields(tmp_path):
     out = tmp_path / "out.dcm"
     orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
