@@ -737,6 +737,12 @@ class TestRepeatLayers:
         with pytest.raises(ValueError):
             du.repeat_layers(n)
 
+    @pytest.mark.parametrize("final_weight", [0.0, -1.0])
+    def test_field_without_total_weight_is_named_not_a_zero_division(self, du, final_weight):
+        du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = final_weight
+        with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
+            du.repeat_layers(3)
+
 
 # ---------------------------------------------------------------------------
 # Delay layers

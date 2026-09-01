@@ -471,6 +471,14 @@ class TestLayerRepeat:
             verify_layer_repeat(before, du.dicom, 4,
                                 delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
 
+    def test_empty_control_point_sequence_is_reported_not_an_index_error(self, du):
+        """The verifier has to name a malformed plan, not crash on one."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        first_beam(du).IonControlPointSequence = []
+        with pytest.raises(PlanVerificationError, match="empty"):
+            verify_layer_repeat(before, du.dicom, 2)
+
     def test_rescale_error_is_a_plan_error(self):
         """GUI and callers catch the base class, so this relationship has to hold."""
         assert issubclass(RescaleVerificationError, PlanVerificationError)

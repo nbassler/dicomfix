@@ -250,10 +250,12 @@ def test_delay_layers_are_inserted_between_repetitions(tmp_path):
     assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3 + 2 * 10.0)
 
 
-def test_delay_layer_without_repeat_layers_is_refused(tmp_path):
+@pytest.mark.parametrize("delay", ['-dl=10', '-dl=0'])
+def test_delay_layer_without_repeat_layers_is_refused(tmp_path, delay):
+    """Including -dl=0: an invalid delay, but the option was still given without -rl."""
     out = tmp_path / "out.dcm"
     with pytest.raises(ValueError, match="repeat_layers"):
-        dicomfix.main.main([str(PLAN_FILE), '-dl=10', '-o', str(out)])
+        dicomfix.main.main([str(PLAN_FILE), delay, '-o', str(out)])
 
 
 def test_repeat_layers_with_duplicate_fields(tmp_path):

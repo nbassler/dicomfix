@@ -313,6 +313,12 @@ def _sequence_failures(dicom):
                f"{where}: NumberOfControlPoints is {ib.NumberOfControlPoints} but the "
                f"sequence holds {len(icps)} control points")
 
+        # Every check below reads the ends of the sequence. An empty one is a finding in
+        # its own right, and this module has to report it rather than raise IndexError.
+        if not icps:
+            failures.append(f"{where}: control point sequence is empty")
+            continue
+
         indices = [int(icp.ControlPointIndex) for icp in icps]
         _check(indices == list(range(len(icps))), failures,
                f"{where}: control point indices are not 0..{len(icps) - 1}")

@@ -150,7 +150,10 @@ class DicomUtil:
         # would leave the copied control point 0 heading each later repetition with the
         # old gantry, snout and table values, i.e. a plan which changes setup mid-delivery.
         # It also has to follow rescaling, so -rf and -rd act on a single repetition.
-        if config.delay_layer and not config.repeat_layers:
+        # "is not None", not truthiness: -dl=0 is an invalid delay, but it is still the
+        # option being given, and giving it without -rl has to say so rather than pass
+        # silently. The value itself is rejected by repeat_layers().
+        if config.delay_layer is not None and not config.repeat_layers:
             raise ValueError(
                 "-dl/--delay_layer needs -rl/--repeat_layers: a delay layer goes between "
                 "layer repetitions, and without -rl there are none.")
@@ -799,6 +802,14 @@ class DicomUtil:
             original_final = float(ib.FinalCumulativeMetersetWeight)
             final_decimal = Decimal(str(ib.FinalCumulativeMetersetWeight))
 
+            # Everything below is expressed per unit meterset weight, which a field with
+            # no total weight does not have. Say so, rather than divide by zero.
+            if original_final <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has FinalCumulativeMetersetWeight "
+                    f"{original_final}, so its MU per meterset weight is undefined and its "
+                    "layers cannot be repeated.")
+
             rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
             original_beam_meterset = float(rb.BeamMeterset)
             meterset_per_weight = original_beam_meterset / original_final
@@ -902,6 +913,9 @@ class DicomUtil:
             icp = copy.deepcopy(icps[member])
             icp.NumberOfScanSpotPositions = 1
             icp.ScanSpotPositionMap = list(DELAY_SPOT_POSITION)
+            # A one element list, like everywhere else in this module. pydicom collapses
+            # it to a plain float on assignment, since the VR is multi-valued but this is
+            # VM 1, so readers using the NumberOfScanSpotPositions == 1 idiom see a scalar.
             icp.ScanSpotMetersetWeights = [float(weight)]
             icp.CumulativeMetersetWeight = float(cumulative_weight + (Decimal(0) if member == 0 else delay_weight))
             pair.append(icp)
