@@ -48,7 +48,7 @@ from dicomfix.gui.model import (
     describe_unsupported,
     short_version,
 )
-from dicomfix.verify import RescaleVerificationError
+from dicomfix.verify import PlanVerificationError
 
 logger = logging.getLogger(__name__)
 
@@ -696,8 +696,8 @@ class MainWindow(QMainWindow):
             plan = DicomUtil(self.plan.filename)
             plan.modify(Config(parsed))
             plan.save(output)
-        except RescaleVerificationError as exc:
-            QMessageBox.critical(self, "Rescale verification failed - plan NOT written",
+        except PlanVerificationError as exc:
+            QMessageBox.critical(self, "Plan verification failed - plan NOT written",
                                  str(exc))
             return False
         except Exception as exc:

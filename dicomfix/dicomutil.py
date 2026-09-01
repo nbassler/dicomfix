@@ -10,6 +10,7 @@ import copy
 import datetime
 import logging
 import random
+from decimal import Decimal
 
 import pydicom
 from pydicom.uid import generate_uid
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_SAVE_FILENAME = "output.dcm"
 MU_MIN = 1.0  # at least this many MU in a single spot
 HLINE = 72 * '-'
+
+# Where a synthetic delay layer puts its spot, in mm. Far out in the field, so the
+# scanning magnets have to sweep there and back, which is what buys the delay. Taken
+# from the TR4 spot measurement plan (XRV4000), which alternates a spot at the centre
+# with one here for the same reason, so this position is known to be deliverable. The
+# maximum field is 300 x 400 mm, i.e. x = +/-150 and y = +/-200.
+DELAY_SPOT_POSITION = (140.0, 190.0)
 
 # Sentinel meaning "the user explicitly asked to remove the range shifter", as opposed
 # to None which means "the user did not ask for anything". See Config.parse_range_shifter.
@@ -135,6 +143,23 @@ class DicomUtil:
 
         if config.repainting:
             self.set_repainting(config.repainting)
+
+        # Layer repetition must come after every option which edits the plan geometry.
+        # set_wizard_tr4(), set_gantry_angles(), set_table_position() and
+        # set_snout_position() only write to IonControlPointSequence[0]; repeating first
+        # would leave the copied control point 0 heading each later repetition with the
+        # old gantry, snout and table values, i.e. a plan which changes setup mid-delivery.
+        # It also has to follow rescaling, so -rf and -rd act on a single repetition.
+        # "is not None", not truthiness: -dl=0 is an invalid delay, but it is still the
+        # option being given, and giving it without -rl has to say so rather than pass
+        # silently. The value itself is rejected by repeat_layers().
+        if config.delay_layer is not None and not config.repeat_layers:
+            raise ValueError(
+                "-dl/--delay_layer needs -rl/--repeat_layers: a delay layer goes between "
+                "layer repetitions, and without -rl there are none.")
+
+        if config.repeat_layers:
+            self.repeat_layers(config.repeat_layers, delay_mu=config.delay_layer)
 
         # Field duplication must be done last, when all other modifications are done
         if config.duplicate_fields:
@@ -696,6 +721,252 @@ class DicomUtil:
                     logger.debug(f"Lowest value found: {min(_mu):.2f} MU")
 
             logger.info(f"Repainting field {ib.BeamName} with {n} times the number of spots.")
+
+    def repeat_layers(self, n, delay_mu=None):
+        """
+        Repeat the entire control point sequence of every field n times, in place.
+
+        The whole energy layer sequence is repeated, so a three layer field becomes
+        L1 L2 L3 L1 L2 L3 ... . Each repetition is one complete delivery of the original
+        field. This is what depth dose curve scanning needs: the detector advances one
+        step between repetitions, and every repetition delivers the same MU pattern at a
+        new depth. It is deliberately not L1 L1 L2 L2 L3 L3, which is what repainting
+        (set_repainting) does at spot level.
+
+        MU per unit meterset weight is held constant, so the plan really delivers n times
+        what it did before: FinalCumulativeMetersetWeight, BeamMeterset and BeamDose all
+        grow by n. The plan level TargetPrescriptionDose is left alone, since the
+        repetitions are delivered at different depths and no longer describe one target.
+
+        With delay_mu, a synthetic delay layer goes into each gap between repetitions, so
+        n repetitions get n-1 delay layers: L1 L2 L3 D L1 L2 L3 D ... L1 L2 L3. It is a
+        single spot far out in the field, at DELAY_SPOT_POSITION, which forces the
+        scanning magnets to sweep there and back and so buys the time a stepper actuator
+        needs to reach the next measurement depth. Its energy is that of the layer which
+        follows, so the delay costs a magnet sweep only and the next layer's energy is
+        already in place.
+
+        Must run after every option which edits plan geometry, see modify().
+
+        Args:
+            n (int): Number of times the layer sequence is delivered. 1 is a no-op.
+            delay_mu (float, optional): Monitor units of the delay spot. None inserts no
+                delay layers.
+
+        Raises:
+            ValueError: If n is not an integer of at least 1, if delay_mu is below MU_MIN,
+                or if a field has no control points to repeat.
+            verify.PlanVerificationError: If the independent check finds the expanded plan
+                does not deliver n times the original. The plan must not be saved.
+        """
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise ValueError(f"Number of layer repetitions must be an integer of at least 1, got {n!r}.")
+
+        if delay_mu is not None:
+            if not isinstance(delay_mu, (int, float)) or isinstance(delay_mu, bool):
+                raise ValueError(f"Delay layer meterset must be a number of MU, got {delay_mu!r}.")
+            if delay_mu < MU_MIN:
+                raise ValueError(
+                    f"Delay layer meterset must be at least {MU_MIN} MU, got {delay_mu}. "
+                    "A smaller spot is not deliverable and would be discarded, silently "
+                    "removing the delay.")
+
+        d = self.dicom
+
+        if n == 1:
+            logger.info("Layer repetition of 1 requested, plan left unchanged.")
+            if delay_mu:
+                logger.warning("No delay layers inserted: they go between repetitions, and 1 repetition has no gaps.")
+            return
+
+        # Measured before anything is touched, for the independent check at the end.
+        _before = verify.snapshot(d)
+
+        for j, ib in enumerate(d.IonBeamSequence):
+            icps = list(ib.IonControlPointSequence)
+            if not icps:
+                raise ValueError(f"Field #{j+1} '{ib.BeamName}' has no control points to repeat.")
+
+            # The plan's own CumulativeMetersetWeight values are kept and offset by one
+            # field's worth per repetition, rather than resummed from the spot weights:
+            # the weights are FL and their sum drifts from the declared DS total by a few
+            # parts in 1e9. Offsetting reproduces the original numbers exactly and lands
+            # on exactly n * FinalCumulativeMetersetWeight at the end.
+            #
+            # Decimal, not float, for that offset. The last control point of one
+            # repetition (F + r*F) and the first of the next ((r+1)*F) are the same
+            # number, but in binary floating point they can land an ulp apart, which
+            # makes the sequence step backwards. Decimal adds the DS decimal strings
+            # exactly, so the two agree, and it also keeps the written value inside the
+            # 16 characters a DS allows.
+            # Attributes this plan puts in its first control point and nowhere else:
+            # gantry angle, snout position, meterset rate and friends. The Varian console
+            # rejects a plan which repeats them ("The gantry angle should be specified
+            # only in the first control point"), and a copy of control point 0 heading
+            # every repetition does exactly that.
+            #
+            # Read off the plan rather than hardcoded, because plans disagree about which
+            # attributes belong where: a RayStation export repeats the table top
+            # positions and the isocenter in its second control point, an Eclipse plan
+            # does not. Whatever a plan already carries in a later control point is
+            # something it was accepted with, so only what is unique to its first control
+            # point is dropped from the copies.
+            first_only = self._first_control_point_only_tags(icps)
+
+            original_final = float(ib.FinalCumulativeMetersetWeight)
+            final_decimal = Decimal(str(ib.FinalCumulativeMetersetWeight))
+
+            # Everything below is expressed per unit meterset weight, which a field with
+            # no total weight does not have. Say so, rather than divide by zero.
+            if original_final <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has FinalCumulativeMetersetWeight "
+                    f"{original_final}, so its MU per meterset weight is undefined and its "
+                    "layers cannot be repeated.")
+
+            rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
+            original_beam_meterset = float(rb.BeamMeterset)
+            meterset_per_weight = original_beam_meterset / original_final
+
+            # The plan stores meterset weights, not MU, so the requested delay MU is
+            # converted the same way minimize_plan() and set_repainting() do. Quantized,
+            # because this weight is added to every later cumulative weight and a full
+            # float repr would overrun the 16 characters a DS allows. Six decimals is
+            # around a part in 1e9 of a delay spot, far below anything deliverable.
+            delay_decimal = Decimal(0)
+            if delay_mu:
+                delay_decimal = Decimal(delay_mu / meterset_per_weight).quantize(Decimal("0.000001"))
+
+            new_final = float(final_decimal * n + delay_decimal * (n - 1))
+
+            new_icps = []
+            for repetition in range(n):
+                offset = (final_decimal + delay_decimal) * repetition
+                for icp in icps:
+                    new_icp = copy.deepcopy(icp)
+                    new_icp.CumulativeMetersetWeight = float(Decimal(str(icp.CumulativeMetersetWeight)) + offset)
+                    new_icps.append(new_icp)
+
+                # One delay layer per gap, so the last repetition does not get one.
+                if delay_mu and repetition < n - 1:
+                    new_icps += self._delay_layer(icps, delay_decimal, offset + final_decimal)
+
+            for k, icp in enumerate(new_icps):
+                icp.ControlPointIndex = k
+
+                # Only the sequence's own first control point may carry these.
+                if k > 0:
+                    for tag in first_only:
+                        if tag in icp:
+                            del icp[tag]
+
+                # Runs 0 to 1 across the whole expanded sequence, as it did across the
+                # original one. Absent on plans which have not been through -rs.
+                if hasattr(icp, "ReferencedDoseReferenceSequence"):
+                    icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = \
+                        float(icp.CumulativeMetersetWeight) / new_final if new_final else 0.0
+
+            ib.IonControlPointSequence = new_icps
+            ib.NumberOfControlPoints = len(new_icps)
+            ib.FinalCumulativeMetersetWeight = new_final
+
+            # Derived from the weights rather than multiplied by n, so the declared total
+            # matches the spots underneath it with the delay spots counted in.
+            rb.BeamMeterset = new_final * meterset_per_weight
+            if "BeamDose" in rb:
+                # Deliberately n times the original, delay layers excluded: their MU lands
+                # far out in the field, not at the dose reference point. The plan's Gy per
+                # MU therefore no longer holds, which is why it is reported below.
+                rb.BeamDose = float(rb.BeamDose) * n
+
+            logger.info(f"Repeating layers of field #{j+1:02} '{ib.BeamName}' {n} times.")
+            logger.info("                                           Original           New   ")
+            logger.info(HLINE)
+            logger.info("Number of control points           : " +
+                        f"{len(icps):14}  {len(new_icps):14}  ")
+            logger.info("Final Cumulative Meterset Weight   : " +
+                        f"{original_final:14.2f}  {new_final:14.2f}  ")
+            logger.info("Beam Meterset                      : " +
+                        f"{original_beam_meterset:14.2f}  {float(rb.BeamMeterset):14.2f}  MU ")
+            logger.info(HLINE)
+
+            if delay_mu:
+                # Warning level, so the extra MU and the dose caveat are seen without -v.
+                delivered = float(delay_decimal) * meterset_per_weight
+                x, y = DELAY_SPOT_POSITION
+                logger.warning(f"Inserted {n - 1} delay layer(s) of {delivered:.2f} MU "
+                               f"at ({x * 0.1:.1f},{y * 0.1:.1f}) cm, "
+                               f"adding {(n - 1) * delivered:.2f} MU to field #{j+1:02}.")
+                logger.warning("Beam Dose is n times the original and does NOT include the delay layers.")
+
+        # Independent check that the expanded plan delivers the original pattern n times,
+        # recomputed from the DICOM tags by code which shares nothing with the above.
+        verify.verify_layer_repeat(_before, d, n,
+                                   delay_mu=delay_mu, delay_position=DELAY_SPOT_POSITION)
+
+    @staticmethod
+    def _first_control_point_only_tags(icps):
+        """
+        Tags a control point sequence carries in its first control point and nowhere else.
+
+        These are the beam setup attributes, which DICOM makes conditional on changing and
+        which the Varian console requires to appear once: gantry angle, snout position,
+        meterset rate, and whatever else a given plan chooses to put only up front.
+
+        A sequence of one control point says nothing about where a tag belongs, so nothing
+        is reported for it: every tag would look unique to the first one.
+
+        Args:
+            icps (list): The control points of one field.
+
+        Returns:
+            set: pydicom tags, empty when the sequence is too short to tell.
+        """
+        if len(icps) < 2:
+            return set()
+
+        first_only = set(icps[0].keys())
+        for icp in icps[1:]:
+            first_only -= set(icp.keys())
+        return first_only
+
+    @staticmethod
+    def _delay_layer(icps, delay_weight, cumulative_weight):
+        """
+        Build the control point pair of one synthetic delay layer.
+
+        An energy layer is stored as a pair: the first control point carries the spot
+        weights, the second repeats the positions with the weights zeroed. A delay layer
+        is the same shape with a single spot, so it is built by copying the pair which
+        opens the following repetition. That inherits the energy of the layer which comes
+        next, along with its tune ID, spot size, range shifter and lateral spreading
+        device settings, none of which the delay is meant to change.
+
+        Args:
+            icps (list): The field's original control points, whose first pair is copied.
+            delay_weight (Decimal): Meterset weight of the delay spot.
+            cumulative_weight (Decimal): Weight delivered before this layer starts.
+
+        Returns:
+            list: Two control points, ready to append to the expanded sequence.
+        """
+        if len(icps) < 2:
+            raise ValueError(
+                "A delay layer needs a control point pair to copy, but this field has "
+                f"only {len(icps)} control point(s).")
+
+        pair = []
+        for member, weight in enumerate((delay_weight, Decimal(0))):
+            icp = copy.deepcopy(icps[member])
+            icp.NumberOfScanSpotPositions = 1
+            icp.ScanSpotPositionMap = list(DELAY_SPOT_POSITION)
+            # A one element list, like everywhere else in this module. pydicom collapses
+            # it to a plain float on assignment, since the VR is multi-valued but this is
+            # VM 1, so readers using the NumberOfScanSpotPositions == 1 idiom see a scalar.
+            icp.ScanSpotMetersetWeights = [float(weight)]
+            icp.CumulativeMetersetWeight = float(cumulative_weight + (Decimal(0) if member == 0 else delay_weight))
+            pair.append(icp)
+        return pair
 
     def set_treatment_machine(self, machine_name):
         """

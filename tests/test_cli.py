@@ -188,6 +188,90 @@ def test_duplicate_fields_doubles_count(tmp_path):
     assert du.dicom.FractionGroupSequence[0].NumberOfBeams == orig_count * 2
 
 
+def test_repeat_layers_triples_control_points(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-o', str(out)])
+    ib = DicomUtil(str(out)).dicom.IonBeamSequence[0]
+    assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 3
+    assert len(ib.IonControlPointSequence) == len(orig.IonControlPointSequence) * 3
+
+
+def test_repeat_layers_triples_meterset(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-o', str(out)])
+    rb = DicomUtil(str(out)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3)
+
+
+def test_repeat_layers_after_rescale(tmp_path):
+    """-rf must scale one repetition, then -rl repeats it: MU x2 x3, not x2 twice."""
+    out = tmp_path / "out.dcm"
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rf=2', '-rl=3', '-o', str(out)])
+    du = DicomUtil(str(out))
+    rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 6)
+
+
+def test_repeat_layers_after_geometry_options(tmp_path):
+    """The new setup must land in control point 0, and appear nowhere else.
+
+    -g, -tp, -sp and -tr4 only write to IonControlPointSequence[0], so repetition has to
+    run after them for those values to be the ones repeated at all. And the copies must
+    not carry the setup attributes themselves: a Varian console rejects a plan that
+    states the gantry angle more than once.
+    """
+    out = tmp_path / "out.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-sp=30.0', '-tp=1,2,3', '-g=45', '-rl=3',
+                        '-o', str(out)])
+    icps = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence
+
+    assert float(icps[0].GantryAngle) == pytest.approx(45.0)
+    assert float(icps[0].SnoutPosition) == pytest.approx(300.0)
+    assert float(icps[0].TableTopVerticalPosition) == pytest.approx(10.0)
+
+    for k, icp in enumerate(icps[1:], start=1):
+        assert "GantryAngle" not in icp, f"control point {k} repeats the gantry angle"
+        assert "SnoutPosition" not in icp, f"control point {k} repeats the snout position"
+        assert "TableTopVerticalPosition" not in icp
+
+
+def test_delay_layers_are_inserted_between_repetitions(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-dl=10', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    ib = d.IonBeamSequence[0]
+    # 3 repetitions, so 2 gaps, each holding a two-control-point delay layer
+    assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 3 + 2 * 2
+    rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3 + 2 * 10.0)
+
+
+@pytest.mark.parametrize("delay", ['-dl=10', '-dl=0'])
+def test_delay_layer_without_repeat_layers_is_refused(tmp_path, delay):
+    """Including -dl=0: an invalid delay, but the option was still given without -rl."""
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="repeat_layers"):
+        dicomfix.main.main([str(PLAN_FILE), delay, '-o', str(out)])
+
+
+def test_repeat_layers_with_duplicate_fields(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    dicomfix.main.main([str(PLAN_FILE), '-rl=2', '-d=2', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    assert d.FractionGroupSequence[0].NumberOfBeams == 2
+    for ib in d.IonBeamSequence:
+        assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 2
+
+
 # ---------------------------------------------------------------------------
 # Tolerance table
 # ---------------------------------------------------------------------------
