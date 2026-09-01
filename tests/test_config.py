@@ -44,6 +44,7 @@ def make_namespace(**kwargs):
         'repeat_layer': None,
         'repeat_layer_delay': None,
         'minimize_current': False,
+        'dump_spot': None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -102,6 +103,29 @@ class TestParsePosition:
     def test_negative_position(self):
         result = Config.parse_position("-5,0,3")
         assert result == pytest.approx((-50.0, 0.0, 30.0))
+
+
+class TestParseSpotPosition:
+    def test_converts_cm_to_mm(self):
+        assert Config.parse_spot_position("0.0,14.0") == pytest.approx((0.0, 140.0))
+
+    def test_negative_values(self):
+        assert Config.parse_spot_position("-14,-19") == pytest.approx((-140.0, -190.0))
+
+    def test_none_returns_none(self):
+        assert Config.parse_spot_position(None) is None
+
+    def test_empty_string_is_treated_as_not_given(self):
+        assert Config.parse_spot_position("") is None
+
+    @pytest.mark.parametrize("value", ["5", "1,2,3"])
+    def test_wrong_number_of_values_raises(self, value):
+        with pytest.raises(ValueError, match="two values"):
+            Config.parse_spot_position(value)
+
+    def test_non_numeric_raises(self):
+        with pytest.raises(ValueError):
+            Config.parse_spot_position("x,y")
 
 
 class TestParseSnoutPosition:

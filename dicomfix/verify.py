@@ -534,7 +534,7 @@ def verify_dummy_spot_added(before, dicom, mu, position, tolerance=METERSET_TOLE
                f"sum of its spots, {got_total:.6f} MU")
 
         if b["beam_dose"] is not None and a["beam_dose"] is not None:
-            # Unchanged: the dummy spots land off axis, not at the dose reference point.
+            # Unchanged: the dummy spots land in the dump area, not at the dose reference point.
             _check(_close(a["beam_dose"], b["beam_dose"], tolerance), failures,
                    f"{where}: BeamDose {a['beam_dose']:.6f}, expected it unchanged at "
                    f"{b['beam_dose']:.6f} Gy(RBE)")

@@ -47,6 +47,7 @@ class Config:
         self.repeat_layer = parsed_args.repeat_layer
         self.repeat_layer_delay = parsed_args.repeat_layer_delay
         self.minimize_current = parsed_args.minimize_current
+        self.dump_spot = self.parse_spot_position(parsed_args.dump_spot)
 
     @staticmethod
     def parse_angles(angles):
@@ -77,6 +78,29 @@ class Config:
         if position:
             return tuple(10.0 * float(x) for x in position.split(","))  # convert to mm
         return None
+
+    @staticmethod
+    def parse_spot_position(spot_position):
+        """
+        Parse an x,y spot position and convert it to millimeters (mm).
+
+        Args:
+            spot_position (str): A comma-separated "x,y" pair, in cm like the other
+                coordinate options.
+
+        Returns:
+            tuple of float: (x, y) in mm, or None if not provided.
+
+        Raises:
+            ValueError: If the pair is not exactly two numbers.
+        """
+        if not spot_position:
+            return None
+        values = [v for v in spot_position.split(",") if v.strip()]
+        if len(values) != 2:
+            raise ValueError(
+                f"Spot position expects two values, x,y in cm, got '{spot_position}'.")
+        return tuple(10.0 * float(v) for v in values)  # convert to mm
 
     @staticmethod
     def parse_snout_position(snout_position):

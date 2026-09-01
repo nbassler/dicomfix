@@ -84,6 +84,10 @@ def parse_arguments(args=None):
     parser.add_argument('-mc', '--minimize_current', action='store_true', default=False,
                         help='Append a 1 MU dummy spot to every energy layer, which forces the '
                              'cyclotron to the lowest possible beam current.')
+    parser.add_argument('-ds', '--dump_spot', type=str, default=None,
+                        help='Position of the dump area where the spots dicomfix adds itself are '
+                             'placed, x,y [cm]. Applies to both -mc and -rld. Use like -ds="0,14". '
+                             'Default is 14,19.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')

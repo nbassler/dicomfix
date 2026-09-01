@@ -234,7 +234,7 @@ def test_delay_without_repeat_layer_is_refused(tmp_path, delay):
 
 
 def test_minimize_current_appends_one_mu_spot(tmp_path):
-    from dicomfix.dicomutil import MU_MIN, OFF_AXIS_SPOT_POSITION
+    from dicomfix.dicomutil import DUMP_SPOT_POSITION, MU_MIN
     out = tmp_path / "out.dcm"
     d_in = DicomUtil(str(PLAN_FILE)).dicom
     spots = d_in.IonBeamSequence[0].IonControlPointSequence[0].NumberOfScanSpotPositions
@@ -245,7 +245,7 @@ def test_minimize_current_appends_one_mu_spot(tmp_path):
     d = DicomUtil(str(out)).dicom
     icp = d.IonBeamSequence[0].IonControlPointSequence[0]
     assert icp.NumberOfScanSpotPositions == spots + 1
-    assert list(icp.ScanSpotPositionMap)[-2:] == list(OFF_AXIS_SPOT_POSITION)
+    assert list(icp.ScanSpotPositionMap)[-2:] == list(DUMP_SPOT_POSITION)
     rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
     assert float(rb.BeamMeterset) == pytest.approx(orig_mu + layers * MU_MIN)
 
@@ -258,6 +258,32 @@ def test_minimize_current_with_repeat_layer(tmp_path):
     dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-mc', '-o', str(out)])
     icp = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence[0]
     assert icp.NumberOfScanSpotPositions == spots * 3 + 2 + 1
+
+
+def test_dump_spot_override_moves_both_spot_types(tmp_path):
+    """-ds is given in cm and moves the dummy spot and the delay spots alike."""
+    out = tmp_path / "out.dcm"
+    spots = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0] \
+        .IonControlPointSequence[0].NumberOfScanSpotPositions
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-mc', '-ds=0.0,14.0', '-o', str(out)])
+    positions = list(DicomUtil(str(out)).dicom.IonBeamSequence[0]
+                     .IonControlPointSequence[0].ScanSpotPositionMap)
+    assert positions[-2:] == [0.0, 140.0]                       # the dummy spot
+    for repeat in range(2):                                     # the delay spots
+        k = (repeat + 1) * spots + repeat
+        assert positions[2 * k:2 * k + 2] == [0.0, 140.0]
+
+
+def test_dump_spot_outside_the_field_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="outside the maximum field"):
+        dicomfix.main.main([str(PLAN_FILE), '-mc', '-ds=0,25', '-o', str(out)])
+
+
+def test_dump_spot_without_anything_to_place_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="dump_spot"):
+        dicomfix.main.main([str(PLAN_FILE), '-ds=0,14', '-o', str(out)])
 
 
 def test_repeat_layer_with_repainting_is_refused(tmp_path):

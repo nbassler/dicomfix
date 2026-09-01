@@ -81,6 +81,9 @@ options:
   -mc, --minimize_current
                         Append a 1 MU dummy spot to every energy layer, which forces the cyclotron to the
                         lowest possible beam current.
+  -ds, --dump_spot DUMP_SPOT
+                        Position of the dump area where the spots dicomfix adds itself are placed, x,y [cm].
+                        Applies to both -mc and -rld. Use like -ds="0,14". Default is 14,19.
   -v, --verbosity       Give more output. Option is additive, can be used up to 3 times
   -V, --version         show program's version number and exit
 ```

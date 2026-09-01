@@ -36,6 +36,11 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
   its dose is real and should not land on what is being measured. `BeamMeterset` grows by
   1 MU per layer while `BeamDose` stays put, for the same reason. Independent of every
   other option; with `-rl` it is added once per layer rather than once per pass.
+- **`-ds` / `--dump_spot "x,y"` moves the dump area** those added spots are placed in,
+  given in cm like the other coordinate options. It applies to the dummy spot and the
+  delay spot alike, since both exist to put their dose somewhere that is not the target.
+  A position outside the 30 x 40 cm maximum field is refused rather than written into an
+  undeliverable plan.
 - **A working graphical interface** (`dicomfix-gui`), covering rescaling, field
   duplication, range shifter, treatment machine, gantry angle, table and snout position
   (#41). Edits are queued and applied on export. Ships as a standalone Windows executable.

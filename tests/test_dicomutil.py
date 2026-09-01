@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dicomfix.dicomexport import DicomExport
-from dicomfix.dicomutil import MU_MIN, OFF_AXIS_SPOT_POSITION, DicomUtil
+from dicomfix.dicomutil import DUMP_SPOT_POSITION, MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -650,7 +650,7 @@ class TestRepeatLayerSpots:
         positions = list(icps[0].ScanSpotPositionMap)
         for repeat in range(3):
             k = (repeat + 1) * spots + repeat
-            assert positions[2 * k:2 * k + 2] == list(OFF_AXIS_SPOT_POSITION)
+            assert positions[2 * k:2 * k + 2] == list(DUMP_SPOT_POSITION)
 
     def test_delay_spot_delivers_the_requested_meterset(self, du):
         d = du.dicom
@@ -766,7 +766,7 @@ class TestMinimizeCurrent:
         du.minimize_current()
         positions = list(icps[0].ScanSpotPositionMap)
         assert positions[:len(original)] == original          # the plan's own spots, untouched
-        assert positions[-2:] == list(OFF_AXIS_SPOT_POSITION)
+        assert positions[-2:] == list(DUMP_SPOT_POSITION)
 
     def test_dummy_spot_delivers_one_mu(self, du):
         d = du.dicom
@@ -841,6 +841,49 @@ class TestMinimizeCurrent:
         du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = 0.0
         with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
             du.minimize_current()
+
+
+class TestDumpSpotPosition:
+    """Where dicomfix puts the spots it adds itself: the dump area, overridable with -ds."""
+
+    def test_dummy_spot_uses_the_override(self, du):
+        du.minimize_current(spot_position=(0.0, 140.0))
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        for icp in icps:
+            assert list(icp.ScanSpotPositionMap)[-2:] == [0.0, 140.0]
+
+    def test_delay_spots_use_the_same_override(self, du):
+        """Both spot types dump into the same area, so one option moves both."""
+        spots = du.dicom.IonBeamSequence[0].IonControlPointSequence[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(3, delay_mu=20.0, spot_position=(0.0, 140.0))
+        positions = list(du.dicom.IonBeamSequence[0].IonControlPointSequence[0].ScanSpotPositionMap)
+        for repeat in range(2):
+            k = (repeat + 1) * spots + repeat
+            assert positions[2 * k:2 * k + 2] == [0.0, 140.0]
+
+    def test_default_is_the_dump_spot_position(self, du):
+        du.minimize_current()
+        icp = du.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+        assert list(icp.ScanSpotPositionMap)[-2:] == list(DUMP_SPOT_POSITION)
+
+    @pytest.mark.parametrize("position", [(0.0, 250.0), (-200.0, 0.0), (151.0, 201.0)])
+    def test_position_outside_the_field_raises(self, du, position):
+        """The magnets cannot put a spot there at all, so the plan would be undeliverable."""
+        with pytest.raises(ValueError, match="outside the maximum field"):
+            du.minimize_current(spot_position=position)
+
+    def test_position_on_the_field_edge_is_allowed(self, du):
+        du.minimize_current(spot_position=(150.0, 200.0))
+        icp = du.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+        assert list(icp.ScanSpotPositionMap)[-2:] == [150.0, 200.0]
+
+    def test_wrong_number_of_coordinates_raises(self, du):
+        with pytest.raises(ValueError, match="two values"):
+            du.minimize_current(spot_position=(1.0, 2.0, 3.0))
+
+    def test_override_is_rejected_by_the_delay_path_too(self, du):
+        with pytest.raises(ValueError, match="outside the maximum field"):
+            du.repeat_layer_spots(3, delay_mu=20.0, spot_position=(0.0, 250.0))
 
 
 class TestDuplicateFields:

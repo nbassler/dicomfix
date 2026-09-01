@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from dicomfix.dicomutil import MU_MIN, OFF_AXIS_SPOT_POSITION, DicomUtil
+from dicomfix.dicomutil import DUMP_SPOT_POSITION, MU_MIN, DicomUtil
 from dicomfix.verify import (
     GEOMETRY_TOLERANCE,
     METERSET_TOLERANCE,
@@ -335,7 +335,7 @@ class TestLayerSpotRepeat:
         before = snapshot(du.dicom)
         du.repeat_layer_spots(repeats, delay_mu=20.0)
         verify_layer_spot_repeat(before, du.dicom, repeats,
-                                 delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                 delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_honest_repeat_without_delay_spots_passes(self, du):
         before = snapshot(du.dicom)
@@ -347,14 +347,14 @@ class TestLayerSpotRepeat:
         du.repeat_layer_spots(2, delay_mu=20.0)
         with pytest.raises(PlanVerificationError, match="spot count"):
             verify_layer_spot_repeat(before, du.dicom, 3,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_missing_delay_spots(self, du):
         before = snapshot(du.dicom)
         du.repeat_layer_spots(4)                    # no delays inserted
         with pytest.raises(PlanVerificationError, match="spot count"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_delay_spot_drifted_towards_field_centre(self, du):
         """A delay spot near the centre is a short magnet sweep, so it buys no time."""
@@ -367,7 +367,7 @@ class TestLayerSpotRepeat:
         icp.ScanSpotPositionMap = positions
         with pytest.raises(PlanVerificationError, match="positions"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_delay_spot_with_wrong_meterset(self, du):
         before = snapshot(du.dicom)
@@ -379,7 +379,7 @@ class TestLayerSpotRepeat:
         icp.ScanSpotMetersetWeights = weights
         with pytest.raises(PlanVerificationError, match="original meterset"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_divided_weights(self, du):
         """Repainting semantics instead of full weight per pass: every depth underdosed."""
@@ -389,7 +389,7 @@ class TestLayerSpotRepeat:
         icp.ScanSpotMetersetWeights = [float(w) / 4.0 for w in icp.ScanSpotMetersetWeights]
         with pytest.raises(PlanVerificationError, match="original meterset"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_changed_energy(self, du):
         """Energies must be untouched: the delivery system needs them strictly decreasing."""
@@ -399,7 +399,7 @@ class TestLayerSpotRepeat:
         icp.NominalBeamEnergy = float(icp.NominalBeamEnergy) + 20.0
         with pytest.raises(PlanVerificationError, match="energies"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_added_control_points(self, du):
         before = snapshot(du.dicom)
@@ -408,7 +408,7 @@ class TestLayerSpotRepeat:
         ib.IonControlPointSequence.append(copy.deepcopy(ib.IonControlPointSequence[0]))
         with pytest.raises(PlanVerificationError, match="control point count changed"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_beam_meterset_ignoring_the_delay_spots(self, du):
         before = snapshot(du.dicom)
@@ -416,7 +416,7 @@ class TestLayerSpotRepeat:
         referenced_beam(du).BeamMeterset = before["beams"][0]["beam_meterset"] * 4
         with pytest.raises(PlanVerificationError, match="BeamMeterset"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_unscaled_beam_dose(self, du):
         before = snapshot(du.dicom)
@@ -424,7 +424,7 @@ class TestLayerSpotRepeat:
         referenced_beam(du).BeamDose = before["beams"][0]["beam_dose"]
         with pytest.raises(PlanVerificationError, match="BeamDose"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_catches_non_monotonic_cumulative_weight(self, du):
         before = snapshot(du.dicom)
@@ -432,7 +432,7 @@ class TestLayerSpotRepeat:
         first_beam(du).IonControlPointSequence[2].CumulativeMetersetWeight = 0.0
         with pytest.raises(PlanVerificationError, match="monotonically increasing"):
             verify_layer_spot_repeat(before, du.dicom, 4,
-                                     delay_mu=20.0, delay_position=OFF_AXIS_SPOT_POSITION)
+                                     delay_mu=20.0, delay_position=DUMP_SPOT_POSITION)
 
     def test_empty_control_point_sequence_is_reported_not_an_index_error(self, du):
         """The verifier has to name a malformed plan, not crash on one."""
@@ -445,7 +445,7 @@ class TestLayerSpotRepeat:
     def test_dummy_spots_pass_on_an_honest_plan(self, du):
         before = snapshot(du.dicom)
         du.minimize_current()
-        verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+        verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_catches_dummy_spot_missing_from_a_layer(self, du):
         """A layer without one runs at whatever current its own spots imply."""
@@ -456,7 +456,7 @@ class TestLayerSpotRepeat:
         icp.ScanSpotPositionMap = [float(p) for p in icp.ScanSpotPositionMap][:-2]
         icp.NumberOfScanSpotPositions -= 1
         with pytest.raises(PlanVerificationError, match="spot count"):
-            verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+            verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_catches_dummy_spot_of_the_wrong_size(self, du):
         """Too large a spot raises the current floor, which is the whole point of it."""
@@ -467,7 +467,7 @@ class TestLayerSpotRepeat:
         weights[-1] *= 10.0
         icp.ScanSpotMetersetWeights = weights
         with pytest.raises(PlanVerificationError, match=f"{MU_MIN} MU"):
-            verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+            verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_catches_dummy_spot_on_the_target(self, du):
         """Its dose is real, so it must land off axis and not on what is being measured."""
@@ -478,21 +478,21 @@ class TestLayerSpotRepeat:
         positions[-2:] = [0.0, 0.0]
         icp.ScanSpotPositionMap = positions
         with pytest.raises(PlanVerificationError, match="not at"):
-            verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+            verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_catches_beam_meterset_ignoring_the_dummy_spots(self, du):
         before = snapshot(du.dicom)
         du.minimize_current()
         referenced_beam(du).BeamMeterset = before["beams"][0]["beam_meterset"]
         with pytest.raises(PlanVerificationError, match="BeamMeterset"):
-            verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+            verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_catches_beam_dose_changed_by_the_dummy_spots(self, du):
         before = snapshot(du.dicom)
         du.minimize_current()
         referenced_beam(du).BeamDose = float(referenced_beam(du).BeamDose) * 1.1
         with pytest.raises(PlanVerificationError, match="BeamDose"):
-            verify_dummy_spot_added(before, du.dicom, MU_MIN, OFF_AXIS_SPOT_POSITION)
+            verify_dummy_spot_added(before, du.dicom, MU_MIN, DUMP_SPOT_POSITION)
 
     def test_rescale_error_is_a_plan_error(self):
         """GUI and callers catch the base class, so this relationship has to hold."""
