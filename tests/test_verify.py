@@ -471,6 +471,22 @@ class TestLayerRepeat:
             verify_layer_repeat(before, du.dicom, 4,
                                 delay_mu=10.0, delay_position=DELAY_SPOT_POSITION)
 
+    def test_catches_setup_attributes_repeated_mid_sequence(self, du):
+        """The defect which made the first generated plan fail to load on the console."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(3)
+        icps = first_beam(du).IonControlPointSequence
+        icps[len(icps) // 3].GantryAngle = 90.0        # as a naive copy of CP 0 would
+        with pytest.raises(PlanVerificationError, match="first control point"):
+            verify_layer_repeat(before, du.dicom, 3)
+
+    def test_names_the_repeated_attribute(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(3)
+        first_beam(du).IonControlPointSequence[2].SnoutPosition = 421.0
+        with pytest.raises(PlanVerificationError, match="SnoutPosition"):
+            verify_layer_repeat(before, du.dicom, 3)
+
     def test_empty_control_point_sequence_is_reported_not_an_index_error(self, du):
         """The verifier has to name a malformed plan, not crash on one."""
         before = snapshot(du.dicom)

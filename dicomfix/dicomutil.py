@@ -799,6 +799,20 @@ class DicomUtil:
             # makes the sequence step backwards. Decimal adds the DS decimal strings
             # exactly, so the two agree, and it also keeps the written value inside the
             # 16 characters a DS allows.
+            # Attributes this plan puts in its first control point and nowhere else:
+            # gantry angle, snout position, meterset rate and friends. The Varian console
+            # rejects a plan which repeats them ("The gantry angle should be specified
+            # only in the first control point"), and a copy of control point 0 heading
+            # every repetition does exactly that.
+            #
+            # Read off the plan rather than hardcoded, because plans disagree about which
+            # attributes belong where: a RayStation export repeats the table top
+            # positions and the isocenter in its second control point, an Eclipse plan
+            # does not. Whatever a plan already carries in a later control point is
+            # something it was accepted with, so only what is unique to its first control
+            # point is dropped from the copies.
+            first_only = self._first_control_point_only_tags(icps)
+
             original_final = float(ib.FinalCumulativeMetersetWeight)
             final_decimal = Decimal(str(ib.FinalCumulativeMetersetWeight))
 
@@ -839,6 +853,13 @@ class DicomUtil:
 
             for k, icp in enumerate(new_icps):
                 icp.ControlPointIndex = k
+
+                # Only the sequence's own first control point may carry these.
+                if k > 0:
+                    for tag in first_only:
+                        if tag in icp:
+                            del icp[tag]
+
                 # Runs 0 to 1 across the whole expanded sequence, as it did across the
                 # original one. Absent on plans which have not been through -rs.
                 if hasattr(icp, "ReferencedDoseReferenceSequence"):
@@ -882,6 +903,32 @@ class DicomUtil:
         # recomputed from the DICOM tags by code which shares nothing with the above.
         verify.verify_layer_repeat(_before, d, n,
                                    delay_mu=delay_mu, delay_position=DELAY_SPOT_POSITION)
+
+    @staticmethod
+    def _first_control_point_only_tags(icps):
+        """
+        Tags a control point sequence carries in its first control point and nowhere else.
+
+        These are the beam setup attributes, which DICOM makes conditional on changing and
+        which the Varian console requires to appear once: gantry angle, snout position,
+        meterset rate, and whatever else a given plan chooses to put only up front.
+
+        A sequence of one control point says nothing about where a tag belongs, so nothing
+        is reported for it: every tag would look unique to the first one.
+
+        Args:
+            icps (list): The control points of one field.
+
+        Returns:
+            set: pydicom tags, empty when the sequence is too short to tell.
+        """
+        if len(icps) < 2:
+            return set()
+
+        first_only = set(icps[0].keys())
+        for icp in icps[1:]:
+            first_only -= set(icp.keys())
+        return first_only
 
     @staticmethod
     def _delay_layer(icps, delay_weight, cumulative_weight):

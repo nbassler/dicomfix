@@ -737,6 +737,38 @@ class TestRepeatLayers:
         with pytest.raises(ValueError):
             du.repeat_layers(n)
 
+    @pytest.mark.parametrize("keyword", ["GantryAngle", "SnoutPosition", "MetersetRate",
+                                         "TableTopVerticalPosition", "IsocenterPosition"])
+    def test_setup_attributes_appear_only_in_the_first_control_point(self, du, keyword):
+        """A Varian console refuses a plan which states the gantry angle more than once.
+
+        Copies of control point 0 head every repetition and arrive carrying the whole
+        beam setup, which is what made the first generated plan fail to load.
+        """
+        assert keyword in du.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+        du.repeat_layers(3)
+        for k, icp in enumerate(du.dicom.IonBeamSequence[0].IonControlPointSequence):
+            assert (keyword in icp) == (k == 0), f"control point {k}"
+
+    def test_setup_attributes_are_not_repeated_by_delay_layers(self, du):
+        """The delay layer copies control point 0 too, so it has the same problem."""
+        du.repeat_layers(3, delay_mu=10.0)
+        for k, icp in enumerate(du.dicom.IonBeamSequence[0].IonControlPointSequence):
+            assert ("GantryAngle" in icp) == (k == 0), f"control point {k}"
+
+    def test_attributes_the_plan_already_repeats_are_kept(self, du):
+        """Only what is unique to control point 0 goes.
+
+        Plans disagree: a RayStation export carries the table top positions in every
+        control point, and one which was accepted that way must keep them.
+        """
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        for icp in icps:
+            icp.TableTopVerticalPosition = 12.0        # now repeated, as RayStation does
+        du.repeat_layers(3)
+        for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence:
+            assert float(icp.TableTopVerticalPosition) == pytest.approx(12.0)
+
     @pytest.mark.parametrize("final_weight", [0.0, -1.0])
     def test_field_without_total_weight_is_named_not_a_zero_division(self, du, final_weight):
         du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = final_weight

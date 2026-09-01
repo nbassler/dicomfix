@@ -25,7 +25,11 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
   by layer, which is what `-rp` already does at spot level. MU per spot is unchanged, so
   `BeamMeterset`, `FinalCumulativeMetersetWeight` and `BeamDose` all grow by a factor N.
   Applied after every other option, since `-tr4`, `-g`, `-tp` and `-sp` only write to the
-  first control point.
+  first control point. The copies are stripped of whatever the plan states only in that
+  first control point — gantry angle, snout position, meterset rate and the like — since
+  a Varian console rejects a plan which repeats them. What a plan already carries in its
+  later control points is left alone, so a RayStation export keeps the table top
+  positions it repeats.
 - **`-dl` / `--delay_layer MU` puts a synthetic delay layer in each gap between those
   repetitions** (#48), so `-rl=N` gets N−1 of them. Each is a single spot of the given MU
   at x = 140 mm, y = 190 mm, the position the TR4 spot measurement plan already uses:

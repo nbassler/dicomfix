@@ -218,22 +218,26 @@ def test_repeat_layers_after_rescale(tmp_path):
 
 
 def test_repeat_layers_after_geometry_options(tmp_path):
-    """Every repeated control point 0 must carry the new setup, not the plan's old one.
+    """The new setup must land in control point 0, and appear nowhere else.
 
-    -g, -tp, -sp and -tr4 only write to IonControlPointSequence[0]. If repetition ran
-    before them, the control point heading each later repetition would still hold the
-    original gantry, snout and table values, and the plan would change setup mid-delivery.
+    -g, -tp, -sp and -tr4 only write to IonControlPointSequence[0], so repetition has to
+    run after them for those values to be the ones repeated at all. And the copies must
+    not carry the setup attributes themselves: a Varian console rejects a plan that
+    states the gantry angle more than once.
     """
     out = tmp_path / "out.dcm"
     dicomfix.main.main([str(PLAN_FILE), '-sp=30.0', '-tp=1,2,3', '-g=45', '-rl=3',
                         '-o', str(out)])
     icps = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence
-    heads = [icp for icp in icps if "GantryAngle" in icp]
-    assert len(heads) == 3                      # one per repetition
-    for icp in heads:
-        assert float(icp.GantryAngle) == pytest.approx(45.0)
-        assert float(icp.SnoutPosition) == pytest.approx(300.0)
-        assert float(icp.TableTopVerticalPosition) == pytest.approx(10.0)
+
+    assert float(icps[0].GantryAngle) == pytest.approx(45.0)
+    assert float(icps[0].SnoutPosition) == pytest.approx(300.0)
+    assert float(icps[0].TableTopVerticalPosition) == pytest.approx(10.0)
+
+    for k, icp in enumerate(icps[1:], start=1):
+        assert "GantryAngle" not in icp, f"control point {k} repeats the gantry angle"
+        assert "SnoutPosition" not in icp, f"control point {k} repeats the snout position"
+        assert "TableTopVerticalPosition" not in icp
 
 
 def test_delay_layers_are_inserted_between_repetitions(tmp_path):

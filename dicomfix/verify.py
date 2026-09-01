@@ -80,6 +80,25 @@ def _spot_weights(icp):
     return [float(w) for w in weights]
 
 
+def _first_only_tags(icps):
+    """Tags a control point sequence carries in its first control point and nowhere else.
+
+    These are the beam setup attributes: gantry angle, snout position, meterset rate and
+    the like. The delivery system requires them once, up front, so an expansion which
+    copies the first control point into the middle of a sequence has to drop them.
+
+    A sequence of one control point says nothing about where a tag belongs, so it reports
+    nothing rather than claiming every tag is unique to the first.
+    """
+    if len(icps) < 2:
+        return set()
+
+    first_only = set(icps[0].keys())
+    for icp in icps[1:]:
+        first_only -= set(icp.keys())
+    return first_only
+
+
 def snapshot(dicom):
     """
     Capture what a plan delivers, computed from its DICOM tags alone.
@@ -134,6 +153,7 @@ def snapshot(dicom):
             "energies": energies,
             "beam_meterset": beam_meterset,
             "beam_dose": float(rb.BeamDose) if "BeamDose" in rb else None,
+            "first_only_tags": _first_only_tags(ib.IonControlPointSequence),
         })
 
     prescriptions = [float(dr.TargetPrescriptionDose)
@@ -349,6 +369,44 @@ def _sequence_failures(dicom):
     return failures
 
 
+def _setup_attribute_failures(dicom, before):
+    """Beam setup attributes must still appear only in the first control point.
+
+    Expansion copies the first control point into the middle of the sequence, once per
+    repetition, and it arrives carrying the gantry angle and everything else the plan
+    states once up front. A Varian console refuses such a plan outright ("The gantry
+    angle should be specified only in the first control point"), so this is a delivery
+    blocking defect rather than a cosmetic one, and it is invisible to every check which
+    only looks at meterset and geometry.
+
+    The tags are those the plan carried that way *before* expansion, taken from the
+    snapshot: plans disagree about which attributes they repeat, and one which already
+    repeated an attribute was accepted that way.
+    """
+    failures = []
+
+    for j, ib in enumerate(dicom.IonBeamSequence):
+        if j >= len(before["beams"]):
+            break
+        first_only = before["beams"][j].get("first_only_tags") or set()
+        if not first_only:
+            continue
+
+        for k, icp in enumerate(ib.IonControlPointSequence):
+            if k == 0:
+                continue
+            repeated = [icp[tag] for tag in sorted(first_only) if tag in icp]
+            if repeated:
+                # Named off the elements themselves, so this module needs no tag lookup.
+                names = ", ".join(str(element.keyword or element.tag) for element in repeated)
+                failures.append(
+                    f"field {j}: control point {k} repeats attributes which belong only to "
+                    f"the first control point ({names}); the delivery system will reject this plan")
+                break        # one report per field is enough, they all say the same thing
+
+    return failures
+
+
 def verify_layer_repeat(before, dicom, repeats, delay_mu=None, delay_position=None,
                         tolerance=METERSET_TOLERANCE):
     """
@@ -443,6 +501,7 @@ def verify_layer_repeat(before, dicom, repeats, delay_mu=None, delay_position=No
                    f"{where}: BeamDose {a['beam_dose']:.6f}, expected {want_dose:.6f} Gy(RBE)")
 
     failures += _sequence_failures(dicom)
+    failures += _setup_attribute_failures(dicom, before)
 
     if failures:
         raise PlanVerificationError(
