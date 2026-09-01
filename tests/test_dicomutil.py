@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dicomfix.dicomexport import DicomExport
-from dicomfix.dicomutil import MU_MIN, DicomUtil
+from dicomfix.dicomutil import DELAY_SPOT_POSITION, MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -593,6 +593,162 @@ class TestRescaling:
 # ---------------------------------------------------------------------------
 # Field duplication
 # ---------------------------------------------------------------------------
+
+class TestRepeatLayerSpots:
+    """Repeating the spot list inside each layer, with delay spots between passes."""
+
+    def test_spot_count_per_control_point(self, du):
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        original = [icp.NumberOfScanSpotPositions for icp in icps]
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        for icp, spots in zip(icps, original):
+            assert icp.NumberOfScanSpotPositions == spots * 4 + 3
+
+    def test_spot_count_without_delay_spots(self, du):
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        original = [icp.NumberOfScanSpotPositions for icp in icps]
+        du.repeat_layer_spots(4)
+        for icp, spots in zip(icps, original):
+            assert icp.NumberOfScanSpotPositions == spots * 4
+
+    def test_control_point_count_is_unchanged(self, du):
+        """No layers are added: this is what keeps the plan deliverable."""
+        ib = du.dicom.IonBeamSequence[0]
+        original = ib.NumberOfControlPoints
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        assert ib.NumberOfControlPoints == original
+        assert len(ib.IonControlPointSequence) == original
+
+    def test_energies_are_unchanged(self, du):
+        """The delivery system wants strictly decreasing energies, so leave them alone."""
+        original = beam_energies(du)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        assert beam_energies(du) == original
+
+    def test_each_pass_delivers_the_original_meterset(self, du):
+        """Full weight per pass, not divided as -rp does: every depth gets the full dose."""
+        icp = du.dicom.IonBeamSequence[0].IonControlPointSequence[0]
+        d = du.dicom
+        ib = d.IonBeamSequence[0]
+        before = float(d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset) \
+            / float(ib.FinalCumulativeMetersetWeight)
+        original_mu = [float(w) * before for w in icp.ScanSpotMetersetWeights]
+
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        after = float(d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset) \
+            / float(ib.FinalCumulativeMetersetWeight)
+        spots = len(original_mu)
+        got = [float(w) * after for w in icp.ScanSpotMetersetWeights]
+        for repeat in range(4):
+            start = repeat * (spots + 1)
+            assert got[start:start + spots] == pytest.approx(original_mu)
+
+    def test_delay_spots_sit_far_out_in_the_field(self, du):
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        spots = icps[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        positions = list(icps[0].ScanSpotPositionMap)
+        for repeat in range(3):
+            k = (repeat + 1) * spots + repeat
+            assert positions[2 * k:2 * k + 2] == list(DELAY_SPOT_POSITION)
+
+    def test_delay_spot_delivers_the_requested_meterset(self, du):
+        d = du.dicom
+        ib = d.IonBeamSequence[0]
+        spots = ib.IonControlPointSequence[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        meterset_per_weight = float(d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset) \
+            / float(ib.FinalCumulativeMetersetWeight)
+        weights = list(ib.IonControlPointSequence[0].ScanSpotMetersetWeights)
+        delivered = [float(weights[(r + 1) * spots + r]) * meterset_per_weight for r in range(3)]
+        assert delivered == pytest.approx([20.0] * 3)
+
+    def test_odd_control_point_mirrors_positions_with_zero_weights(self, du):
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        for even, odd in zip(icps[::2], icps[1::2]):
+            assert list(odd.ScanSpotPositionMap) == list(even.ScanSpotPositionMap)
+            assert all(float(w) == 0.0 for w in odd.ScanSpotMetersetWeights)
+
+    def test_beam_meterset_includes_repeats_and_delay_spots(self, du):
+        d = du.dicom
+        rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        original = float(rb.BeamMeterset)
+        layers = len(d.IonBeamSequence[0].IonControlPointSequence) // 2
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        assert float(rb.BeamMeterset) == pytest.approx(original * 4 + layers * 3 * 20.0)
+
+    def test_beam_dose_excludes_the_delay_spots(self, du):
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        original = float(rb.BeamDose)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        assert float(rb.BeamDose) == pytest.approx(original * 4)
+
+    def test_cumulative_weights_increase_monotonically(self, du):
+        du.repeat_layer_spots(25, delay_mu=20.0)
+        weights = [float(icp.CumulativeMetersetWeight)
+                   for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence]
+        assert weights[0] == 0.0
+        assert all(b >= a for a, b in zip(weights, weights[1:]))
+
+    def test_cumulative_weights_fit_in_a_decimal_string(self, du):
+        """DS allows 16 characters, and a float repr of a long sum overruns it."""
+        du.repeat_layer_spots(25, delay_mu=20.0)
+        for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence:
+            assert len(str(icp.CumulativeMetersetWeight)) <= 16
+
+    def test_cumulative_weight_reaches_final(self, du):
+        du.repeat_layer_spots(25, delay_mu=20.0)
+        ib = du.dicom.IonBeamSequence[0]
+        last = ib.IonControlPointSequence[-1]
+        total = float(last.CumulativeMetersetWeight) + sum(float(w) for w in last.ScanSpotMetersetWeights)
+        assert total == pytest.approx(float(ib.FinalCumulativeMetersetWeight))
+
+    def test_dose_reference_coefficient_runs_zero_to_one(self, du):
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        coefficients = [float(icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient)
+                        for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence]
+        assert coefficients[0] == 0.0
+        assert coefficients[-1] == pytest.approx(1.0)
+        assert all(b >= a for a, b in zip(coefficients, coefficients[1:]))
+
+    def test_multi_field_plan(self, du):
+        make_two_field(du)
+        original = [ib.IonControlPointSequence[0].NumberOfScanSpotPositions
+                    for ib in du.dicom.IonBeamSequence]
+        du.repeat_layer_spots(3, delay_mu=20.0)
+        for ib, spots in zip(du.dicom.IonBeamSequence, original):
+            assert ib.IonControlPointSequence[0].NumberOfScanSpotPositions == spots * 3 + 2
+
+    def test_one_pass_is_a_no_op(self, du):
+        before = (spot_metersets(du), spot_positions(du))
+        du.repeat_layer_spots(1, delay_mu=20.0)
+        assert (spot_metersets(du), spot_positions(du)) == before
+
+    @pytest.mark.parametrize("n", [0, -1, 2.5, "3", None])
+    def test_invalid_repeat_count_raises(self, du, n):
+        with pytest.raises(ValueError):
+            du.repeat_layer_spots(n)
+
+    @pytest.mark.parametrize("delay_mu", [0.0, -5.0, MU_MIN / 2.0])
+    def test_delay_below_minimum_raises(self, du, delay_mu):
+        """A spot under MU_MIN would be discarded, silently removing the delay."""
+        with pytest.raises(ValueError):
+            du.repeat_layer_spots(4, delay_mu=delay_mu)
+
+    def test_field_without_total_weight_is_named_not_a_zero_division(self, du):
+        du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = 0.0
+        with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
+            du.repeat_layer_spots(4)
+
+    def test_warns_when_energies_do_not_decrease(self, du, caplog):
+        """The constraint which makes a plan undeliverable, reported before the console."""
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        icps[2].NominalBeamEnergy = float(icps[0].NominalBeamEnergy) + 10.0
+        with caplog.at_level(logging.WARNING):
+            du.repeat_layer_spots(2)
+        assert "do not decrease" in caplog.text
+
 
 class TestDuplicateFields:
     def test_doubles_field_count(self, du):

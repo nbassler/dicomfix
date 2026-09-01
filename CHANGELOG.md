@@ -13,6 +13,22 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
 
 ### Added
 
+- **`-rl` / `--repeat_layer N` repeats the spot list of every energy layer in place**
+  (#48), for depth dose curve scanning: a stepper actuator advances the detector between
+  passes, so a whole curve is measured in a single delivery instead of one beam request
+  per point. Every pass keeps the original weights, so each detector position receives
+  what the plan gave and the field delivers N times its MU; this is the opposite of `-rp`,
+  which divides. **No control points are added**, deliberately: the delivery system
+  requires a field's energy layers to be strictly decreasing, so the layer structure and
+  its energies are left exactly as they were. dicomfix now also warns when a plan's layers
+  do not decrease, whatever option is in use.
+- **`-rld` / `--repeat_layer_delay MU` shims a delay spot into each gap between passes**
+  (#48), N−1 per layer, at x = 140 mm, y = 190 mm — the position the TR3/TR4 spot
+  measurement plan uses for the same purpose. The magnets have to sweep out there and
+  back, which buys the actuator the time it needs. Requires `-rl`. `BeamMeterset` grows
+  with the delay MU but `BeamDose` stays at N × original, since that dose lands far out in
+  the field rather than at the dose reference point, so such a plan no longer carries one
+  Gy-per-MU ratio; dicomfix reports this when it inserts the spots.
 - **A working graphical interface** (`dicomfix-gui`), covering rescaling, field
   duplication, range shifter, treatment machine, gantry angle, table and snout position
   (#41). Edits are queued and applied on export. Ships as a standalone Windows executable.
@@ -45,5 +61,7 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
 - `-i` crashed on plans with no table position set, which includes RayStation exports (#37)
 - `-rd` crashed on plans with two or more fields (#45)
 - Rescaling twice in one session raised `TypeError`, breaking the Streamlit UI (#45)
+- Rescaling crashed with `AttributeError: NominalBeamEnergy` on plans whose control points
+  omit that tag where the energy does not change, which DICOM allows
 - Range shifter removal left dangling settings in the control points
 - `dicomfix.gui` and `dicomfix.web` were not actually packaged

@@ -14,13 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from dicomfix.dicomutil import MU_MIN, DicomUtil
+from dicomfix.dicomutil import DELAY_SPOT_POSITION, MU_MIN, DicomUtil
 from dicomfix.verify import (
     GEOMETRY_TOLERANCE,
     METERSET_TOLERANCE,
     UNIFORMITY_TOLERANCE,
+    PlanVerificationError,
     RescaleVerificationError,
     snapshot,
+    verify_layer_spot_repeat,
     verify_rescale,
 )
 
@@ -296,6 +298,152 @@ class TestTolerance:
         for b, a in zip(before["beams"], after["beams"]):
             assert a["positions"] == b["positions"]
             assert a["energies"] == b["energies"]
+
+
+class TestOptionalEnergyTag:
+    """NominalBeamEnergy is type 1C: it may be omitted where the energy does not change."""
+
+    def test_snapshot_carries_energy_forward(self, du):
+        icps = first_beam(du).IonControlPointSequence
+        expected = float(icps[1].NominalBeamEnergy)
+        del icps[1].NominalBeamEnergy
+        assert snapshot(du.dicom)["beams"][0]["energies"][1] == pytest.approx(expected)
+
+    def test_rescale_of_plan_without_repeated_energy_tags(self, du):
+        """Reading the tag directly raised AttributeError on plans written this way."""
+        for icp in first_beam(du).IonControlPointSequence[1:]:
+            del icp.NominalBeamEnergy
+        du.apply_rescale_factor(2.0)           # verifies internally
+
+    def test_repeat_of_plan_without_repeated_energy_tags(self, du):
+        for icp in first_beam(du).IonControlPointSequence[1:]:
+            del icp.NominalBeamEnergy
+        du.repeat_layer_spots(3, delay_mu=20.0)     # verifies internally
+
+    def test_missing_energy_on_first_control_point_is_malformed(self, du):
+        del first_beam(du).IonControlPointSequence[0].NominalBeamEnergy
+        with pytest.raises(ValueError, match="Malformed plan"):
+            snapshot(du.dicom)
+
+
+class TestLayerSpotRepeat:
+    """Same principle as above: each case breaks one property of a repeated plan."""
+
+    @pytest.mark.parametrize("repeats", [2, 4, 25])
+    def test_honest_repeat_passes(self, du, repeats):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(repeats, delay_mu=20.0)
+        verify_layer_spot_repeat(before, du.dicom, repeats,
+                                 delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_honest_repeat_without_delay_spots_passes(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(3)
+        verify_layer_spot_repeat(before, du.dicom, 3)
+
+    def test_catches_wrong_repeat_count(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(2, delay_mu=20.0)
+        with pytest.raises(PlanVerificationError, match="spot count"):
+            verify_layer_spot_repeat(before, du.dicom, 3,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_missing_delay_spots(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4)                    # no delays inserted
+        with pytest.raises(PlanVerificationError, match="spot count"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_delay_spot_drifted_towards_field_centre(self, du):
+        """A delay spot near the centre is a short magnet sweep, so it buys no time."""
+        before = snapshot(du.dicom)
+        spots = first_beam(du).IonControlPointSequence[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        icp = first_beam(du).IonControlPointSequence[0]
+        positions = [float(p) for p in icp.ScanSpotPositionMap]
+        positions[2 * spots:2 * spots + 2] = [-10.0, -10.0]
+        icp.ScanSpotPositionMap = positions
+        with pytest.raises(PlanVerificationError, match="positions"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_delay_spot_with_wrong_meterset(self, du):
+        before = snapshot(du.dicom)
+        spots = first_beam(du).IonControlPointSequence[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        icp = first_beam(du).IonControlPointSequence[0]
+        weights = [float(w) for w in icp.ScanSpotMetersetWeights]
+        weights[spots] *= 0.5
+        icp.ScanSpotMetersetWeights = weights
+        with pytest.raises(PlanVerificationError, match="original meterset"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_divided_weights(self, du):
+        """Repainting semantics instead of full weight per pass: every depth underdosed."""
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        icp = first_beam(du).IonControlPointSequence[0]
+        icp.ScanSpotMetersetWeights = [float(w) / 4.0 for w in icp.ScanSpotMetersetWeights]
+        with pytest.raises(PlanVerificationError, match="original meterset"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_changed_energy(self, du):
+        """Energies must be untouched: the delivery system needs them strictly decreasing."""
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        icp = first_beam(du).IonControlPointSequence[2]
+        icp.NominalBeamEnergy = float(icp.NominalBeamEnergy) + 20.0
+        with pytest.raises(PlanVerificationError, match="energies"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_added_control_points(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        ib = first_beam(du)
+        ib.IonControlPointSequence.append(copy.deepcopy(ib.IonControlPointSequence[0]))
+        with pytest.raises(PlanVerificationError, match="control point count changed"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_beam_meterset_ignoring_the_delay_spots(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        referenced_beam(du).BeamMeterset = before["beams"][0]["beam_meterset"] * 4
+        with pytest.raises(PlanVerificationError, match="BeamMeterset"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_unscaled_beam_dose(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        referenced_beam(du).BeamDose = before["beams"][0]["beam_dose"]
+        with pytest.raises(PlanVerificationError, match="BeamDose"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_catches_non_monotonic_cumulative_weight(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        first_beam(du).IonControlPointSequence[2].CumulativeMetersetWeight = 0.0
+        with pytest.raises(PlanVerificationError, match="monotonically increasing"):
+            verify_layer_spot_repeat(before, du.dicom, 4,
+                                     delay_mu=20.0, delay_position=DELAY_SPOT_POSITION)
+
+    def test_empty_control_point_sequence_is_reported_not_an_index_error(self, du):
+        """The verifier has to name a malformed plan, not crash on one."""
+        before = snapshot(du.dicom)
+        du.repeat_layer_spots(2)
+        first_beam(du).IonControlPointSequence = []
+        with pytest.raises(PlanVerificationError, match="empty"):
+            verify_layer_spot_repeat(before, du.dicom, 2)
+
+    def test_rescale_error_is_a_plan_error(self):
+        """GUI and callers catch the base class, so this relationship has to hold."""
+        assert issubclass(RescaleVerificationError, PlanVerificationError)
 
 
 class TestIndependence:
