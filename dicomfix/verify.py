@@ -61,11 +61,15 @@ UNIFORMITY_TOLERANCE = 1.0e-9
 GEOMETRY_TOLERANCE = 1.0e-12
 
 
-class RescaleVerificationError(Exception):
-    """Raised when a rescaled plan does not match what was requested.
+class PlanVerificationError(Exception):
+    """Raised when a modified plan does not match what was requested.
 
     This means the plan in memory is not trustworthy and must not be delivered.
     """
+
+
+class RescaleVerificationError(PlanVerificationError):
+    """Raised when a rescaled plan does not match what was requested."""
 
 
 def _spot_weights(icp):
@@ -108,10 +112,21 @@ def snapshot(dicom):
         meterset_per_weight = beam_meterset / final_weight if final_weight else 0.0
 
         spot_mu, positions, energies = [], [], []
+        energy = None
         for icp in ib.IonControlPointSequence:
+            # NominalBeamEnergy is type 1C: a control point which does not change the
+            # energy may omit it, and the previous control point's energy still applies.
+            # Carrying it forward is what the machine does, and reading it directly
+            # raises AttributeError on plans written that way.
+            if "NominalBeamEnergy" in icp:
+                energy = float(icp.NominalBeamEnergy)
+            elif energy is None:
+                raise ValueError(
+                    f"Malformed plan: field {j} begins without a NominalBeamEnergy, so the "
+                    "energy of its first control point is undefined. The plan cannot be verified.")
             spot_mu += [w * meterset_per_weight for w in _spot_weights(icp)]
             positions += [float(p) for p in icp.ScanSpotPositionMap]
-            energies.append(float(icp.NominalBeamEnergy))
+            energies.append(energy)
 
         beams.append({
             "spot_mu": spot_mu,
@@ -267,4 +282,130 @@ def verify_rescale(before, dicom, rescale_factor=None, mu_min=None, tolerance=ME
     scope = "integrity only (per-layer factors)" if rescale_factor is None else \
         f"factor {rescale_factor:.6f}"
     logger.info(f"Rescale verified independently: {scope}, "
+                f"tolerance {tolerance:.1e}, all checks passed.")
+
+
+def _sequence_failures(dicom):
+    """Structural checks on the control point sequences of an expanded plan.
+
+    Read straight off the dataset rather than from a snapshot: these are the tags which
+    describe the *shape* of the sequence, and an expansion which gets the meterset right
+    while leaving the sequence malformed is still undeliverable.
+    """
+    failures = []
+
+    for j, ib in enumerate(dicom.IonBeamSequence):
+        where = f"field {j}"
+        icps = ib.IonControlPointSequence
+        final_weight = float(ib.FinalCumulativeMetersetWeight)
+
+        _check(int(ib.NumberOfControlPoints) == len(icps), failures,
+               f"{where}: NumberOfControlPoints is {ib.NumberOfControlPoints} but the "
+               f"sequence holds {len(icps)} control points")
+
+        indices = [int(icp.ControlPointIndex) for icp in icps]
+        _check(indices == list(range(len(icps))), failures,
+               f"{where}: control point indices are not 0..{len(icps) - 1}")
+
+        weights = [float(icp.CumulativeMetersetWeight) for icp in icps]
+        _check(weights[0] == 0.0, failures,
+               f"{where}: first cumulative meterset weight is {weights[0]}, expected 0")
+        _check(all(b >= a for a, b in zip(weights, weights[1:])), failures,
+               f"{where}: cumulative meterset weight is not monotonically increasing")
+        # A plan whose own declared total disagrees with its last control point cannot be
+        # expanded consistently, so this catches a bad input as well as a bad expansion.
+        _check(_close(weights[-1], final_weight, METERSET_TOLERANCE), failures,
+               f"{where}: last cumulative meterset weight {weights[-1]:.6f} does not reach "
+               f"FinalCumulativeMetersetWeight {final_weight:.6f}")
+
+        coefficients = [float(icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient)
+                        for icp in icps if "ReferencedDoseReferenceSequence" in icp]
+        if coefficients:
+            _check(coefficients[0] == 0.0, failures,
+                   f"{where}: first cumulative dose reference coefficient is "
+                   f"{coefficients[0]}, expected 0")
+            _check(_close(coefficients[-1], 1.0, METERSET_TOLERANCE), failures,
+                   f"{where}: last cumulative dose reference coefficient is "
+                   f"{coefficients[-1]:.6f}, expected 1")
+            _check(all(b >= a for a, b in zip(coefficients, coefficients[1:])), failures,
+                   f"{where}: cumulative dose reference coefficient is not monotonically increasing")
+
+    return failures
+
+
+def verify_layer_repeat(before, dicom, repeats, tolerance=METERSET_TOLERANCE):
+    """
+    Check that a plan whose layers were repeated delivers the original pattern n times.
+
+    Repetition must not touch what a spot delivers, only how many times the sequence is
+    delivered, so this compares the expanded plan against the pre-expansion snapshot
+    tiled `repeats` times, spot by spot. Positions and energies are compared the same
+    way, since a repetition which perturbed either would no longer be a repetition.
+
+    Args:
+        before (dict): Result of snapshot() taken before the layers were repeated.
+        dicom (pydicom.Dataset): The plan after expansion. It is not modified.
+        repeats (int): How many times the layer sequence is now delivered.
+        tolerance (float): Relative tolerance for meterset quantities. Positions and
+            energies always use GEOMETRY_TOLERANCE regardless of this.
+
+    Raises:
+        PlanVerificationError: If any check fails. The message lists every failure.
+    """
+    after = snapshot(dicom)
+    failures = []
+
+    _check(len(after["beams"]) == len(before["beams"]), failures,
+           f"field count changed: {len(before['beams'])} -> {len(after['beams'])}")
+
+    for j, (b, a) in enumerate(zip(before["beams"], after["beams"])):
+        where = f"field {j}"
+
+        # The spot pattern, tiled. Checked per spot rather than on the total: a total can
+        # be right while the pattern underneath it has been reordered or reweighted.
+        want_mu = b["spot_mu"] * repeats
+        _check(len(a["spot_mu"]) == len(want_mu), failures,
+               f"{where}: spot count is {len(a['spot_mu'])}, expected {len(want_mu)} "
+               f"({len(b['spot_mu'])} x {repeats})")
+        _check(all(_close(x, y, tolerance) for x, y in zip(a["spot_mu"], want_mu)), failures,
+               f"{where}: repeated spots do not deliver the original meterset")
+
+        want_positions = b["positions"] * repeats
+        _check(len(a["positions"]) == len(want_positions)
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["positions"], want_positions)),
+               failures, f"{where}: spot positions were modified by layer repetition")
+
+        want_energies = b["energies"] * repeats
+        _check(len(a["energies"]) == len(want_energies)
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["energies"], want_energies)),
+               failures, f"{where}: beam energies were modified by layer repetition")
+
+        want_meterset = b["beam_meterset"] * repeats
+        _check(_close(a["beam_meterset"], want_meterset, tolerance), failures,
+               f"{where}: BeamMeterset {a['beam_meterset']:.6f} MU, "
+               f"expected {want_meterset:.6f} MU")
+
+        # Declared BeamMeterset must agree with the spots underneath it, or the plan lies
+        # about what it delivers.
+        got_total = sum(a["spot_mu"])
+        _check(_close(got_total, a["beam_meterset"], tolerance), failures,
+               f"{where}: BeamMeterset {a['beam_meterset']:.6f} MU disagrees with the "
+               f"sum of its spots, {got_total:.6f} MU")
+
+        if b["beam_dose"] is not None and a["beam_dose"] is not None:
+            want_dose = b["beam_dose"] * repeats
+            _check(_close(a["beam_dose"], want_dose, tolerance), failures,
+                   f"{where}: BeamDose {a['beam_dose']:.6f}, expected {want_dose:.6f} Gy(RBE)")
+
+    failures += _sequence_failures(dicom)
+
+    if failures:
+        raise PlanVerificationError(
+            f"Layer repetition verification FAILED for {repeats} repetitions "
+            f"(tolerance {tolerance:.1e}). This plan must not be delivered:\n  - "
+            + "\n  - ".join(failures))
+
+    logger.info(f"Layer repetition verified independently: {repeats} repetitions, "
                 f"tolerance {tolerance:.1e}, all checks passed.")

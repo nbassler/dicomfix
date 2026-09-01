@@ -72,6 +72,9 @@ options:
                         Set range shifter (None, RS2 or RS5) are the only valid options
   -rp, --repainting REPAINTING
                         Repaint each layer multiple times without changing MU.
+  -rl, --repeat_layers REPEAT_LAYERS
+                        Repeat the energy layer sequence of each field n times, for depth dose curve
+                        scanning. Plan MU and dose grow by a factor n.
   -v, --verbosity       Give more output. Option is additive, can be used up to 3 times
   -V, --version         show program's version number and exit
 ```

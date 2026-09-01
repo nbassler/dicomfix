@@ -41,6 +41,7 @@ def make_namespace(**kwargs):
         'verbosity': 0,
         'range_shifter': None,
         'repainting': None,
+        'repeat_layers': None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)

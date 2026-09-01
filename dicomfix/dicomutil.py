@@ -10,6 +10,7 @@ import copy
 import datetime
 import logging
 import random
+from decimal import Decimal
 
 import pydicom
 from pydicom.uid import generate_uid
@@ -135,6 +136,15 @@ class DicomUtil:
 
         if config.repainting:
             self.set_repainting(config.repainting)
+
+        # Layer repetition must come after every option which edits the plan geometry.
+        # set_wizard_tr4(), set_gantry_angles(), set_table_position() and
+        # set_snout_position() only write to IonControlPointSequence[0]; repeating first
+        # would leave the copied control point 0 heading each later repetition with the
+        # old gantry, snout and table values, i.e. a plan which changes setup mid-delivery.
+        # It also has to follow rescaling, so -rf and -rd act on a single repetition.
+        if config.repeat_layers:
+            self.repeat_layers(config.repeat_layers)
 
         # Field duplication must be done last, when all other modifications are done
         if config.duplicate_fields:
@@ -696,6 +706,107 @@ class DicomUtil:
                     logger.debug(f"Lowest value found: {min(_mu):.2f} MU")
 
             logger.info(f"Repainting field {ib.BeamName} with {n} times the number of spots.")
+
+    def repeat_layers(self, n):
+        """
+        Repeat the entire control point sequence of every field n times, in place.
+
+        The whole energy layer sequence is repeated, so a three layer field becomes
+        L1 L2 L3 L1 L2 L3 ... . Each repetition is one complete delivery of the original
+        field. This is what depth dose curve scanning needs: the detector advances one
+        step between repetitions, and every repetition delivers the same MU pattern at a
+        new depth. It is deliberately not L1 L1 L2 L2 L3 L3, which is what repainting
+        (set_repainting) does at spot level.
+
+        MU per unit meterset weight is held constant, so the plan really delivers n times
+        what it did before: FinalCumulativeMetersetWeight, BeamMeterset and BeamDose all
+        grow by n. The plan level TargetPrescriptionDose is left alone, since the
+        repetitions are delivered at different depths and no longer describe one target.
+
+        Must run after every option which edits plan geometry, see modify().
+
+        Args:
+            n (int): Number of times the layer sequence is delivered. 1 is a no-op.
+
+        Raises:
+            ValueError: If n is not an integer of at least 1, or a field has no control
+                points to repeat.
+            verify.PlanVerificationError: If the independent check finds the expanded plan
+                does not deliver n times the original. The plan must not be saved.
+        """
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise ValueError(f"Number of layer repetitions must be an integer of at least 1, got {n!r}.")
+
+        d = self.dicom
+
+        if n == 1:
+            logger.info("Layer repetition of 1 requested, plan left unchanged.")
+            return
+
+        # Measured before anything is touched, for the independent check at the end.
+        _before = verify.snapshot(d)
+
+        for j, ib in enumerate(d.IonBeamSequence):
+            icps = list(ib.IonControlPointSequence)
+            if not icps:
+                raise ValueError(f"Field #{j+1} '{ib.BeamName}' has no control points to repeat.")
+
+            # The plan's own CumulativeMetersetWeight values are kept and offset by one
+            # field's worth per repetition, rather than resummed from the spot weights:
+            # the weights are FL and their sum drifts from the declared DS total by a few
+            # parts in 1e9. Offsetting reproduces the original numbers exactly and lands
+            # on exactly n * FinalCumulativeMetersetWeight at the end.
+            #
+            # Decimal, not float, for that offset. The last control point of one
+            # repetition (F + r*F) and the first of the next ((r+1)*F) are the same
+            # number, but in binary floating point they can land an ulp apart, which
+            # makes the sequence step backwards. Decimal adds the DS decimal strings
+            # exactly, so the two agree, and it also keeps the written value inside the
+            # 16 characters a DS allows.
+            original_final = float(ib.FinalCumulativeMetersetWeight)
+            final_decimal = Decimal(str(ib.FinalCumulativeMetersetWeight))
+            new_final = float(final_decimal * n)
+
+            new_icps = []
+            for repetition in range(n):
+                offset = final_decimal * repetition
+                for icp in icps:
+                    new_icp = copy.deepcopy(icp)
+                    new_icp.CumulativeMetersetWeight = float(Decimal(str(icp.CumulativeMetersetWeight)) + offset)
+                    new_icps.append(new_icp)
+
+            for k, icp in enumerate(new_icps):
+                icp.ControlPointIndex = k
+                # Runs 0 to 1 across the whole expanded sequence, as it did across the
+                # original one. Absent on plans which have not been through -rs.
+                if hasattr(icp, "ReferencedDoseReferenceSequence"):
+                    icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = \
+                        float(icp.CumulativeMetersetWeight) / new_final if new_final else 0.0
+
+            ib.IonControlPointSequence = new_icps
+            ib.NumberOfControlPoints = len(new_icps)
+            ib.FinalCumulativeMetersetWeight = new_final
+
+            rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
+            original_beam_meterset = float(rb.BeamMeterset)
+            rb.BeamMeterset = original_beam_meterset * n
+            if "BeamDose" in rb:
+                rb.BeamDose = float(rb.BeamDose) * n
+
+            logger.info(f"Repeating layers of field #{j+1:02} '{ib.BeamName}' {n} times.")
+            logger.info("                                           Original           New   ")
+            logger.info(HLINE)
+            logger.info("Number of control points           : " +
+                        f"{len(icps):14}  {len(new_icps):14}  ")
+            logger.info("Final Cumulative Meterset Weight   : " +
+                        f"{original_final:14.2f}  {new_final:14.2f}  ")
+            logger.info("Beam Meterset                      : " +
+                        f"{original_beam_meterset:14.2f}  {float(rb.BeamMeterset):14.2f}  MU ")
+            logger.info(HLINE)
+
+        # Independent check that the expanded plan delivers the original pattern n times,
+        # recomputed from the DICOM tags by code which shares nothing with the above.
+        verify.verify_layer_repeat(_before, d, n)
 
     def set_treatment_machine(self, machine_name):
         """

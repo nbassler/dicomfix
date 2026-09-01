@@ -624,6 +624,121 @@ class TestDuplicateFields:
 
 
 # ---------------------------------------------------------------------------
+# Layer repetition
+# ---------------------------------------------------------------------------
+
+class TestRepeatLayers:
+    def test_control_point_count(self, du):
+        orig = len(du.dicom.IonBeamSequence[0].IonControlPointSequence)
+        du.repeat_layers(3)
+        assert len(du.dicom.IonBeamSequence[0].IonControlPointSequence) == orig * 3
+
+    def test_number_of_control_points_tag_matches_sequence(self, du):
+        du.repeat_layers(3)
+        ib = du.dicom.IonBeamSequence[0]
+        assert ib.NumberOfControlPoints == len(ib.IonControlPointSequence)
+
+    def test_final_cumulative_weight_scales(self, du):
+        orig = float(du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight)
+        du.repeat_layers(3)
+        assert float(du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight) == pytest.approx(orig * 3)
+
+    def test_beam_meterset_scales(self, du):
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        orig = float(rb.BeamMeterset)
+        du.repeat_layers(3)
+        assert float(rb.BeamMeterset) == pytest.approx(orig * 3)
+
+    def test_beam_dose_scales(self, du):
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        orig = float(rb.BeamDose)
+        du.repeat_layers(3)
+        assert float(rb.BeamDose) == pytest.approx(orig * 3)
+
+    def test_spot_metersets_are_the_original_pattern_tiled(self, du):
+        """The measurement depends on this: each repetition delivers the original MU."""
+        orig = spot_metersets(du)
+        du.repeat_layers(3)
+        assert spot_metersets(du) == pytest.approx(orig * 3)
+
+    def test_spot_positions_are_the_original_pattern_tiled(self, du):
+        orig = spot_positions(du)
+        du.repeat_layers(3)
+        assert spot_positions(du) == pytest.approx(orig * 3)
+
+    def test_energies_are_the_original_pattern_tiled(self, du):
+        orig = beam_energies(du)
+        du.repeat_layers(3)
+        assert beam_energies(du) == pytest.approx(orig * 3)
+
+    def test_layer_order_is_sequence_repeated_not_layer_repainted(self, du):
+        """L1 L2 L3 L1 L2 L3, not L1 L1 L2 L2 L3 L3, which is what -rp does."""
+        orig = beam_energies(du)
+        du.repeat_layers(2)
+        assert beam_energies(du)[:len(orig)] == pytest.approx(orig)
+
+    def test_control_point_indices_are_sequential(self, du):
+        du.repeat_layers(3)
+        for k, icp in enumerate(du.dicom.IonBeamSequence[0].IonControlPointSequence):
+            assert icp.ControlPointIndex == k
+
+    def test_cumulative_weights_increase_monotonically(self, du):
+        du.repeat_layers(3)
+        weights = [float(icp.CumulativeMetersetWeight)
+                   for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence]
+        assert weights[0] == 0.0
+        assert all(b >= a for a, b in zip(weights, weights[1:]))
+
+    def test_cumulative_weight_reaches_final(self, du):
+        du.repeat_layers(3)
+        ib = du.dicom.IonBeamSequence[0]
+        last = float(ib.IonControlPointSequence[-1].CumulativeMetersetWeight)
+        assert last == pytest.approx(float(ib.FinalCumulativeMetersetWeight))
+
+    def test_dose_reference_coefficient_runs_zero_to_one(self, du):
+        du.repeat_layers(3)
+        coefficients = [float(icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient)
+                        for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence]
+        assert coefficients[0] == 0.0
+        assert coefficients[-1] == pytest.approx(1.0)
+        assert all(b >= a for a, b in zip(coefficients, coefficients[1:]))
+
+    def test_cumulative_weights_stay_monotonic_over_many_repetitions(self, du):
+        """The repetition boundary is where this breaks.
+
+        The last control point of one repetition and the first of the next are the same
+        cumulative weight, F + r*F and (r+1)*F. Computed in binary floating point they
+        can land an ulp apart, and the sequence then steps backwards.
+        """
+        du.repeat_layers(25)
+        weights = [float(icp.CumulativeMetersetWeight)
+                   for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence]
+        assert all(b >= a for a, b in zip(weights, weights[1:]))
+
+    def test_cumulative_weights_fit_in_a_decimal_string(self, du):
+        """DS is limited to 16 characters, and float repr overruns it."""
+        du.repeat_layers(25)
+        for icp in du.dicom.IonBeamSequence[0].IonControlPointSequence:
+            assert len(str(icp.CumulativeMetersetWeight)) <= 16
+
+    def test_multi_field_plan(self, du):
+        make_two_field(du)
+        orig = [len(ib.IonControlPointSequence) for ib in du.dicom.IonBeamSequence]
+        du.repeat_layers(2)
+        assert [len(ib.IonControlPointSequence) for ib in du.dicom.IonBeamSequence] == [n * 2 for n in orig]
+
+    def test_one_repetition_is_a_no_op(self, du):
+        before = (len(du.dicom.IonBeamSequence[0].IonControlPointSequence), spot_metersets(du))
+        du.repeat_layers(1)
+        assert (len(du.dicom.IonBeamSequence[0].IonControlPointSequence), spot_metersets(du)) == before
+
+    @pytest.mark.parametrize("n", [0, -1, 2.5, "3", None])
+    def test_invalid_repetition_count_raises(self, du, n):
+        with pytest.raises(ValueError):
+            du.repeat_layers(n)
+
+
+# ---------------------------------------------------------------------------
 # Inspect
 # ---------------------------------------------------------------------------
 

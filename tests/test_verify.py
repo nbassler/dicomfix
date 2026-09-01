@@ -19,8 +19,10 @@ from dicomfix.verify import (
     GEOMETRY_TOLERANCE,
     METERSET_TOLERANCE,
     UNIFORMITY_TOLERANCE,
+    PlanVerificationError,
     RescaleVerificationError,
     snapshot,
+    verify_layer_repeat,
     verify_rescale,
 )
 
@@ -213,6 +215,32 @@ class TestCatchesCorruption:
             verify_rescale(before, du.dicom, 2.0, mu_min=MU_MIN)
 
 
+class TestOptionalEnergyTag:
+    """NominalBeamEnergy is type 1C: it may be omitted where the energy does not change."""
+
+    def test_snapshot_carries_energy_forward(self, du):
+        icps = first_beam(du).IonControlPointSequence
+        expected = float(icps[1].NominalBeamEnergy)
+        del icps[1].NominalBeamEnergy
+        assert snapshot(du.dicom)["beams"][0]["energies"][1] == pytest.approx(expected)
+
+    def test_rescale_of_plan_without_repeated_energy_tags(self, du):
+        """Reading the tag directly raised AttributeError on plans written this way."""
+        for icp in first_beam(du).IonControlPointSequence[1:]:
+            del icp.NominalBeamEnergy
+        du.apply_rescale_factor(2.0)           # verifies internally
+
+    def test_repeat_layers_of_plan_without_repeated_energy_tags(self, du):
+        for icp in first_beam(du).IonControlPointSequence[1:]:
+            del icp.NominalBeamEnergy
+        du.repeat_layers(3)                    # verifies internally
+
+    def test_missing_energy_on_first_control_point_is_malformed(self, du):
+        del first_beam(du).IonControlPointSequence[0].NominalBeamEnergy
+        with pytest.raises(ValueError, match="Malformed plan"):
+            snapshot(du.dicom)
+
+
 class TestMalformedPlans:
     """A malformed plan must be named as such, not surface as a bare IndexError."""
 
@@ -296,6 +324,100 @@ class TestTolerance:
         for b, a in zip(before["beams"], after["beams"]):
             assert a["positions"] == b["positions"]
             assert a["energies"] == b["energies"]
+
+
+class TestLayerRepeat:
+    """Same principle as above: each case breaks one property of a repeated plan."""
+
+    @pytest.mark.parametrize("repeats", [2, 3, 25])
+    def test_honest_repetition_passes(self, du, repeats):
+        before = snapshot(du.dicom)
+        du.repeat_layers(repeats)
+        verify_layer_repeat(before, du.dicom, repeats)
+
+    def test_catches_wrong_repetition_count(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        with pytest.raises(PlanVerificationError, match="spot count"):
+            verify_layer_repeat(before, du.dicom, 3)
+
+    def test_catches_perturbed_spot_meterset(self, du):
+        """A repetition which does not deliver the original MU is not a repetition."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        icp = first_beam(du).IonControlPointSequence[0]
+        weights = [float(w) for w in icp.ScanSpotMetersetWeights]
+        weights[0] *= 1.1
+        icp.ScanSpotMetersetWeights = weights
+        with pytest.raises(PlanVerificationError, match="original meterset"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_unscaled_beam_meterset(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        referenced_beam(du).BeamMeterset = before["beams"][0]["beam_meterset"]
+        with pytest.raises(PlanVerificationError, match="BeamMeterset"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_unscaled_beam_dose(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        referenced_beam(du).BeamDose = before["beams"][0]["beam_dose"]
+        with pytest.raises(PlanVerificationError, match="BeamDose"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_moved_spot(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        icp = first_beam(du).IonControlPointSequence[0]
+        positions = [float(p) for p in icp.ScanSpotPositionMap]
+        positions[0] += 5.0
+        icp.ScanSpotPositionMap = positions
+        with pytest.raises(PlanVerificationError, match="positions"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_stale_number_of_control_points(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        first_beam(du).NumberOfControlPoints = 16
+        with pytest.raises(PlanVerificationError, match="NumberOfControlPoints"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_unrenumbered_control_point_indices(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        first_beam(du).IonControlPointSequence[-1].ControlPointIndex = 0
+        with pytest.raises(PlanVerificationError, match="indices"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_non_monotonic_cumulative_weight(self, du):
+        """What a naive expansion produces: cumulative weights restarting each repetition."""
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        icps = first_beam(du).IonControlPointSequence
+        icps[len(icps) // 2].CumulativeMetersetWeight = 0.0
+        with pytest.raises(PlanVerificationError, match="monotonically increasing"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_cumulative_weight_short_of_final(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        ib = first_beam(du)
+        ib.FinalCumulativeMetersetWeight = float(ib.FinalCumulativeMetersetWeight) * 1.5
+        with pytest.raises(PlanVerificationError, match="FinalCumulativeMetersetWeight"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_catches_dose_reference_coefficient_not_reaching_one(self, du):
+        before = snapshot(du.dicom)
+        du.repeat_layers(2)
+        icps = first_beam(du).IonControlPointSequence
+        icps[-1].ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = 0.5
+        with pytest.raises(PlanVerificationError, match="dose reference coefficient"):
+            verify_layer_repeat(before, du.dicom, 2)
+
+    def test_rescale_error_is_a_plan_error(self):
+        """GUI and callers catch the base class, so this relationship has to hold."""
+        assert issubclass(RescaleVerificationError, PlanVerificationError)
 
 
 class TestIndependence:

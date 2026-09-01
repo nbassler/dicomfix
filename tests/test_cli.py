@@ -188,6 +188,64 @@ def test_duplicate_fields_doubles_count(tmp_path):
     assert du.dicom.FractionGroupSequence[0].NumberOfBeams == orig_count * 2
 
 
+def test_repeat_layers_triples_control_points(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-o', str(out)])
+    ib = DicomUtil(str(out)).dicom.IonBeamSequence[0]
+    assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 3
+    assert len(ib.IonControlPointSequence) == len(orig.IonControlPointSequence) * 3
+
+
+def test_repeat_layers_triples_meterset(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-o', str(out)])
+    rb = DicomUtil(str(out)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3)
+
+
+def test_repeat_layers_after_rescale(tmp_path):
+    """-rf must scale one repetition, then -rl repeats it: MU x2 x3, not x2 twice."""
+    out = tmp_path / "out.dcm"
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rf=2', '-rl=3', '-o', str(out)])
+    du = DicomUtil(str(out))
+    rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 6)
+
+
+def test_repeat_layers_after_geometry_options(tmp_path):
+    """Every repeated control point 0 must carry the new setup, not the plan's old one.
+
+    -g, -tp, -sp and -tr4 only write to IonControlPointSequence[0]. If repetition ran
+    before them, the control point heading each later repetition would still hold the
+    original gantry, snout and table values, and the plan would change setup mid-delivery.
+    """
+    out = tmp_path / "out.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-sp=30.0', '-tp=1,2,3', '-g=45', '-rl=3',
+                        '-o', str(out)])
+    icps = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence
+    heads = [icp for icp in icps if "GantryAngle" in icp]
+    assert len(heads) == 3                      # one per repetition
+    for icp in heads:
+        assert float(icp.GantryAngle) == pytest.approx(45.0)
+        assert float(icp.SnoutPosition) == pytest.approx(300.0)
+        assert float(icp.TableTopVerticalPosition) == pytest.approx(10.0)
+
+
+def test_repeat_layers_with_duplicate_fields(tmp_path):
+    out = tmp_path / "out.dcm"
+    orig = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    dicomfix.main.main([str(PLAN_FILE), '-rl=2', '-d=2', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    assert d.FractionGroupSequence[0].NumberOfBeams == 2
+    for ib in d.IonBeamSequence:
+        assert ib.NumberOfControlPoints == orig.NumberOfControlPoints * 2
+
+
 # ---------------------------------------------------------------------------
 # Tolerance table
 # ---------------------------------------------------------------------------
