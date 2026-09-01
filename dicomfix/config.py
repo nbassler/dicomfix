@@ -46,6 +46,7 @@ class Config:
         self.repainting = parsed_args.repainting
         self.repeat_layer = parsed_args.repeat_layer
         self.repeat_layer_delay = parsed_args.repeat_layer_delay
+        self.minimize_current = parsed_args.minimize_current
 
     @staticmethod
     def parse_angles(angles):

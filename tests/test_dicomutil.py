@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dicomfix.dicomexport import DicomExport
-from dicomfix.dicomutil import DELAY_SPOT_POSITION, MU_MIN, DicomUtil
+from dicomfix.dicomutil import MU_MIN, OFF_AXIS_SPOT_POSITION, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
 
@@ -650,7 +650,7 @@ class TestRepeatLayerSpots:
         positions = list(icps[0].ScanSpotPositionMap)
         for repeat in range(3):
             k = (repeat + 1) * spots + repeat
-            assert positions[2 * k:2 * k + 2] == list(DELAY_SPOT_POSITION)
+            assert positions[2 * k:2 * k + 2] == list(OFF_AXIS_SPOT_POSITION)
 
     def test_delay_spot_delivers_the_requested_meterset(self, du):
         d = du.dicom
@@ -748,6 +748,99 @@ class TestRepeatLayerSpots:
         with caplog.at_level(logging.WARNING):
             du.repeat_layer_spots(2)
         assert "do not decrease" in caplog.text
+
+
+class TestMinimizeCurrent:
+    """The 1 MU dummy spot which pins the cyclotron to its lowest beam current (#30)."""
+
+    def test_one_spot_added_per_control_point(self, du):
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        original = [icp.NumberOfScanSpotPositions for icp in icps]
+        du.minimize_current()
+        for icp, spots in zip(icps, original):
+            assert icp.NumberOfScanSpotPositions == spots + 1
+
+    def test_dummy_spot_is_appended_at_the_end_of_the_layer(self, du):
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        original = list(icps[0].ScanSpotPositionMap)
+        du.minimize_current()
+        positions = list(icps[0].ScanSpotPositionMap)
+        assert positions[:len(original)] == original          # the plan's own spots, untouched
+        assert positions[-2:] == list(OFF_AXIS_SPOT_POSITION)
+
+    def test_dummy_spot_delivers_one_mu(self, du):
+        d = du.dicom
+        du.minimize_current()
+        ib = d.IonBeamSequence[0]
+        meterset_per_weight = float(d.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset) \
+            / float(ib.FinalCumulativeMetersetWeight)
+        for icp in ib.IonControlPointSequence[::2]:
+            assert float(list(icp.ScanSpotMetersetWeights)[-1]) * meterset_per_weight == pytest.approx(MU_MIN)
+
+    def test_smallest_spot_becomes_mu_min(self, du):
+        """The whole point: the layer's smallest spot sets the current."""
+        du.minimize_current()
+        assert min(mu for mu in spot_metersets(du) if mu > 0.0) == pytest.approx(MU_MIN)
+
+    def test_odd_control_point_mirrors_positions_with_zero_weight(self, du):
+        du.minimize_current()
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        for even, odd in zip(icps[::2], icps[1::2]):
+            assert list(odd.ScanSpotPositionMap) == list(even.ScanSpotPositionMap)
+            assert float(list(odd.ScanSpotMetersetWeights)[-1]) == 0.0
+
+    def test_beam_meterset_grows_by_one_mu_per_layer(self, du):
+        d = du.dicom
+        rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        original = float(rb.BeamMeterset)
+        layers = len(d.IonBeamSequence[0].IonControlPointSequence) // 2
+        du.minimize_current()
+        assert float(rb.BeamMeterset) == pytest.approx(original + layers * MU_MIN)
+
+    def test_beam_dose_is_unchanged(self, du):
+        """The dummy spots land off axis, not at the dose reference point."""
+        rb = du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+        original = float(rb.BeamDose)
+        du.minimize_current()
+        assert float(rb.BeamDose) == pytest.approx(original)
+
+    def test_control_points_and_energies_are_unchanged(self, du):
+        ib = du.dicom.IonBeamSequence[0]
+        control_points, energies = ib.NumberOfControlPoints, beam_energies(du)
+        du.minimize_current()
+        assert ib.NumberOfControlPoints == control_points
+        assert beam_energies(du) == energies
+
+    def test_cumulative_weights_stay_consistent(self, du):
+        du.minimize_current()
+        ib = du.dicom.IonBeamSequence[0]
+        weights = [float(icp.CumulativeMetersetWeight) for icp in ib.IonControlPointSequence]
+        assert weights[0] == 0.0
+        assert all(b >= a for a, b in zip(weights, weights[1:]))
+        last = ib.IonControlPointSequence[-1]
+        total = float(last.CumulativeMetersetWeight) + sum(float(w) for w in last.ScanSpotMetersetWeights)
+        assert total == pytest.approx(float(ib.FinalCumulativeMetersetWeight))
+
+    def test_multi_field_plan(self, du):
+        make_two_field(du)
+        original = [ib.IonControlPointSequence[0].NumberOfScanSpotPositions
+                    for ib in du.dicom.IonBeamSequence]
+        du.minimize_current()
+        for ib, spots in zip(du.dicom.IonBeamSequence, original):
+            assert ib.IonControlPointSequence[0].NumberOfScanSpotPositions == spots + 1
+
+    def test_one_dummy_spot_per_layer_after_repeats(self, du):
+        """With -rl the dummy spot is added once per layer, not once per pass."""
+        icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
+        spots = icps[0].NumberOfScanSpotPositions
+        du.repeat_layer_spots(4, delay_mu=20.0)
+        du.minimize_current()
+        assert icps[0].NumberOfScanSpotPositions == spots * 4 + 3 + 1
+
+    def test_field_without_total_weight_is_named_not_a_zero_division(self, du):
+        du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = 0.0
+        with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
+            du.minimize_current()
 
 
 class TestDuplicateFields:

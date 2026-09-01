@@ -233,6 +233,33 @@ def test_delay_without_repeat_layer_is_refused(tmp_path, delay):
         dicomfix.main.main([str(PLAN_FILE), delay, '-o', str(out)])
 
 
+def test_minimize_current_appends_one_mu_spot(tmp_path):
+    from dicomfix.dicomutil import MU_MIN, OFF_AXIS_SPOT_POSITION
+    out = tmp_path / "out.dcm"
+    d_in = DicomUtil(str(PLAN_FILE)).dicom
+    spots = d_in.IonBeamSequence[0].IonControlPointSequence[0].NumberOfScanSpotPositions
+    layers = len(d_in.IonBeamSequence[0].IonControlPointSequence) // 2
+    orig_mu = float(d_in.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+
+    dicomfix.main.main([str(PLAN_FILE), '-mc', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    icp = d.IonBeamSequence[0].IonControlPointSequence[0]
+    assert icp.NumberOfScanSpotPositions == spots + 1
+    assert list(icp.ScanSpotPositionMap)[-2:] == list(OFF_AXIS_SPOT_POSITION)
+    rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu + layers * MU_MIN)
+
+
+def test_minimize_current_with_repeat_layer(tmp_path):
+    """One dummy spot per layer, not one per pass."""
+    out = tmp_path / "out.dcm"
+    spots = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0] \
+        .IonControlPointSequence[0].NumberOfScanSpotPositions
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-mc', '-o', str(out)])
+    icp = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence[0]
+    assert icp.NumberOfScanSpotPositions == spots * 3 + 2 + 1
+
+
 def test_repeat_layer_with_repainting_is_refused(tmp_path):
     """One divides the layer MU, the other multiplies it."""
     out = tmp_path / "out.dcm"

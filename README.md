@@ -78,6 +78,9 @@ options:
   -rld, --repeat_layer_delay REPEAT_LAYER_DELAY
                         Insert a delay spot of this many MU between each pass over a layer, so a stepper has
                         time to move. Requires -rl.
+  -mc, --minimize_current
+                        Append a 1 MU dummy spot to every energy layer, which forces the cyclotron to the
+                        lowest possible beam current.
   -v, --verbosity       Give more output. Option is additive, can be used up to 3 times
   -V, --version         show program's version number and exit
 ```

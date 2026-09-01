@@ -81,6 +81,9 @@ def parse_arguments(args=None):
     parser.add_argument('-rld', '--repeat_layer_delay', type=float, default=None,
                         help='Insert a delay spot of this many MU between each pass over a layer, '
                              'so a stepper has time to move. Requires -rl.')
+    parser.add_argument('-mc', '--minimize_current', action='store_true', default=False,
+                        help='Append a 1 MU dummy spot to every energy layer, which forces the '
+                             'cyclotron to the lowest possible beam current.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')

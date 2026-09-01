@@ -43,6 +43,7 @@ def make_namespace(**kwargs):
         'repainting': None,
         'repeat_layer': None,
         'repeat_layer_delay': None,
+        'minimize_current': False,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)

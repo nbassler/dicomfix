@@ -32,11 +32,14 @@ RANGE_SHIFTER_NONE = "NONE"
 # Water equivalent thickness [mm] of the available range shifters.
 RANGE_SHIFTER_WET = {"RS_2CM": 22.8, "RS_5CM": 57.0}
 
-# Where a delay spot goes, in mm. Far out in the field, so the scanning magnets have to
-# sweep there and back, which is what buys the delay. Taken from the TR3/TR4 spot
-# measurement plan (XRV4000), which uses this position for the same purpose, so it is
-# known to be deliverable. Maximum field is 300 x 400 mm, i.e. x +/-150 and y +/-200.
-DELAY_SPOT_POSITION = (140.0, 190.0)
+# Where the spots dicomfix adds itself go, in mm: far out in the field, away from anything
+# being measured. Two options put spots here, for different reasons. A delay spot (-rld)
+# is placed there so the scanning magnets have to sweep out and back, which is what buys
+# the delay. A dummy spot (-mc) is placed there because its dose has to land somewhere and
+# should not land on the target. Taken from the TR3/TR4 spot measurement plan (XRV4000),
+# which uses this exact position, so it is known to be deliverable. The maximum field is
+# 300 x 400 mm, i.e. x +/-150 and y +/-200.
+OFF_AXIS_SPOT_POSITION = (140.0, 190.0)
 
 
 class DicomUtil:
@@ -163,6 +166,11 @@ class DicomUtil:
         # can never push them below MU_MIN.
         if config.repeat_layer:
             self.repeat_layer_spots(config.repeat_layer, delay_mu=config.repeat_layer_delay)
+
+        # After the layer repeats, so each layer gets one dummy spot rather than one per
+        # pass, and after rescaling, so its 1 MU is not scaled into something else.
+        if config.minimize_current:
+            self.minimize_current()
 
         # Field duplication must be done last, when all other modifications are done
         if config.duplicate_fields:
@@ -739,7 +747,7 @@ class DicomUtil:
         This is for depth dose curve scanning: a stepper actuator advances the detector
         one position between passes, so a whole curve is measured in a single delivery
         rather than one beam request per point. The delay spot sits far out in the field,
-        at DELAY_SPOT_POSITION, forcing the scanning magnets to sweep there and back,
+        at OFF_AXIS_SPOT_POSITION, forcing the scanning magnets to sweep there and back,
         which buys the actuator the time it needs to reach the next position.
 
         Nothing is added to the IonControlPointSequence: the control point count, the layer
@@ -808,28 +816,19 @@ class DicomUtil:
             self._warn_if_energies_do_not_decrease(ib, j)
 
             # The plan stores meterset weights, not MU, so the requested delay MU is
-            # converted the same way minimize_plan() and set_repainting() do. Quantized,
-            # because this weight lands in the cumulative weights, which are DS and so
-            # limited to 16 characters. Six decimals is about a part in 1e9 of a delay
-            # spot, far below anything deliverable.
-            delay_weight = 0.0
-            if delay_mu:
-                delay_weight = float(Decimal(delay_mu / meterset_per_weight).quantize(Decimal("0.000001")))
+            # converted the same way minimize_plan() and set_repainting() do. Full
+            # precision: the weights are FL, and it is the cumulative weights which have
+            # to fit a DS, which _renumber_cumulative_weights() takes care of.
+            delay_weight = delay_mu / meterset_per_weight if delay_mu else 0.0
 
             original_spots = icps[0].NumberOfScanSpotPositions
             for i, icp in enumerate(icps):
-                # A single spot is not stored as a list by pydicom, so cast it to one.
-                # NumberOfScanSpotPositions, not isinstance(..., list): after an earlier
-                # modification pydicom stores these as MultiValue, which is not a list.
-                if icp.NumberOfScanSpotPositions == 1:
-                    weights = [icp.ScanSpotMetersetWeights]
-                else:
-                    weights = list(icp.ScanSpotMetersetWeights)
+                weights = self._spot_weights(icp)
                 positions = list(icp.ScanSpotPositionMap)
 
                 # Every second control point repeats the positions with the weights
                 # zeroed, so only the even ones carry meterset -- delay spots included.
-                pass_weights = [float(w) for w in weights] if i % 2 == 0 else [0.0] * len(weights)
+                pass_weights = weights if i % 2 == 0 else [0.0] * len(weights)
                 gap_weight = delay_weight if i % 2 == 0 else 0.0
 
                 new_weights, new_positions = [], []
@@ -838,7 +837,7 @@ class DicomUtil:
                     new_positions += positions
                     if delay_mu and repeat < n - 1:
                         new_weights.append(gap_weight)
-                        new_positions += list(DELAY_SPOT_POSITION)
+                        new_positions += list(OFF_AXIS_SPOT_POSITION)
 
                 icp.ScanSpotMetersetWeights = new_weights
                 icp.ScanSpotPositionMap = new_positions
@@ -872,7 +871,7 @@ class DicomUtil:
             if delay_mu:
                 # Warning level, so the extra MU and the dose caveat are seen without -v.
                 delivered = delay_weight * meterset_per_weight
-                x, y = DELAY_SPOT_POSITION
+                x, y = OFF_AXIS_SPOT_POSITION
                 logger.warning(f"Inserted {delay_spots} delay spot(s) of {delivered:.2f} MU at "
                                f"({x * 0.1:.1f},{y * 0.1:.1f}) cm, {n - 1} per layer, "
                                f"adding {delay_spots * delivered:.2f} MU to field #{j+1:02}.")
@@ -883,7 +882,103 @@ class DicomUtil:
         # Independent check that the expanded plan delivers the original pattern n times,
         # recomputed from the DICOM tags by code which shares nothing with the above.
         verify.verify_layer_spot_repeat(_before, d, n,
-                                        delay_mu=delay_mu, delay_position=DELAY_SPOT_POSITION)
+                                        delay_mu=delay_mu, delay_position=OFF_AXIS_SPOT_POSITION)
+
+    def minimize_current(self):
+        """
+        Append a 1 MU dummy spot to the end of every energy layer.
+
+        The cyclotron picks its beam current from what a layer has to deliver, so a layer
+        holding one very small spot has to be delivered at the lowest current the machine
+        can produce. Adding a spot of MU_MIN, the smallest deliverable, therefore pins the
+        whole plan to that floor, which is what issue #30 asks for.
+
+        The dummy spot goes at OFF_AXIS_SPOT_POSITION, far out in the field, because its
+        dose is real and has to land somewhere that is not the target. One per energy
+        layer, since the current is chosen per layer, and appended at the end of the
+        layer's spot list.
+
+        BeamMeterset grows by 1 MU per layer, but BeamDose does not: that dose lands off
+        axis rather than at the dose reference point. The plan therefore no longer carries
+        a single Gy per MU ratio, which is reported.
+
+        Independent of every other option. With -rl it runs afterwards, so each layer gets
+        one dummy spot rather than one per pass.
+
+        Raises:
+            ValueError: If a field has no total meterset weight to convert MU against.
+            verify.PlanVerificationError: If the independent check finds the plan does not
+                carry exactly the spots it should. It must not be saved.
+        """
+        d = self.dicom
+
+        # Measured before anything is touched, for the independent check at the end.
+        _before = verify.snapshot(d)
+
+        for j, ib in enumerate(d.IonBeamSequence):
+            icps = ib.IonControlPointSequence
+            original_final = float(ib.FinalCumulativeMetersetWeight)
+
+            if original_final <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has FinalCumulativeMetersetWeight "
+                    f"{original_final}, so its MU per meterset weight is undefined and a "
+                    "1 MU spot cannot be sized.")
+
+            rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
+            original_beam_meterset = float(rb.BeamMeterset)
+            meterset_per_weight = original_beam_meterset / original_final
+
+            # Full precision, not rounded: the spot weights are FL, and it is the
+            # cumulative weights which have to fit a DS. _renumber_cumulative_weights()
+            # quantizes those, so rounding here would only cost the spot accuracy.
+            dummy_weight = MU_MIN / meterset_per_weight
+
+            smallest_before = min((float(w) * meterset_per_weight
+                                   for icp in icps for w in self._spot_weights(icp) if float(w) > 0.0),
+                                  default=0.0)
+
+            for i, icp in enumerate(icps):
+                weights = [float(w) for w in self._spot_weights(icp)]
+                positions = list(icp.ScanSpotPositionMap)
+
+                # Every second control point repeats the positions with the weights zeroed,
+                # so only the even ones carry meterset.
+                weights.append(dummy_weight if i % 2 == 0 else 0.0)
+                positions += list(OFF_AXIS_SPOT_POSITION)
+
+                icp.ScanSpotMetersetWeights = weights
+                icp.ScanSpotPositionMap = positions
+                icp.NumberOfScanSpotPositions = len(weights)
+
+            new_final = self._renumber_cumulative_weights(icps)
+            ib.FinalCumulativeMetersetWeight = new_final
+            # BeamDose is deliberately left alone: the dummy spots land off axis, not at
+            # the dose reference point.
+            rb.BeamMeterset = new_final * meterset_per_weight
+
+            layers = len(icps) // 2
+            x, y = OFF_AXIS_SPOT_POSITION
+            logger.warning(f"Added {layers} dummy spot(s) of {MU_MIN:.2f} MU at "
+                           f"({x * 0.1:.1f},{y * 0.1:.1f}) cm, one per energy layer, "
+                           f"adding {layers * MU_MIN:.2f} MU to field #{j+1:02}.")
+            logger.info(f"Smallest spot in field #{j+1:02} was {smallest_before:.2f} MU, "
+                        f"now {MU_MIN:.2f} MU, so the plan runs at the lowest beam current.")
+            logger.warning("Beam Dose is unchanged and does NOT include the dummy spots.")
+
+        verify.verify_dummy_spot_added(_before, d, MU_MIN, OFF_AXIS_SPOT_POSITION)
+
+    @staticmethod
+    def _spot_weights(icp):
+        """Scan spot meterset weights of one control point, always as a list of float.
+
+        A single spot is not stored as a list by pydicom. NumberOfScanSpotPositions, not
+        isinstance(..., list): after an earlier modification pydicom stores these as
+        MultiValue, which is not a list subclass.
+        """
+        if icp.NumberOfScanSpotPositions == 1:
+            return [float(icp.ScanSpotMetersetWeights)]
+        return [float(w) for w in icp.ScanSpotMetersetWeights]
 
     @staticmethod
     def _warn_if_energies_do_not_decrease(ib, j):

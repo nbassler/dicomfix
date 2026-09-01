@@ -463,3 +463,89 @@ def verify_layer_spot_repeat(before, dicom, repeats, delay_mu=None, delay_positi
 
     logger.info(f"Layer spot repeat verified independently: {repeats} passes, "
                 f"tolerance {tolerance:.1e}, all checks passed.")
+
+
+def verify_dummy_spot_added(before, dicom, mu, position, tolerance=METERSET_TOLERANCE):
+    """
+    Check that one dummy spot of the given size was appended to every energy layer.
+
+    The spot exists to hold the cyclotron at its lowest beam current, so what matters is
+    that every layer really ends with a spot of exactly `mu` and that nothing else moved:
+    a layer which missed one runs at whatever current its own spots imply, and a spot of
+    the wrong size raises that floor. The plan's own spots, its energies and its control
+    point count must be untouched.
+
+    Args:
+        before (dict): Result of snapshot() taken before the spots were added.
+        dicom (pydicom.Dataset): The plan afterwards. It is not modified.
+        mu (float): Monitor units each dummy spot must deliver.
+        position (tuple of float): Where a dummy spot must sit, (x, y) in mm. Passed in
+            rather than known here, so this module stays independent of the code it checks.
+        tolerance (float): Relative tolerance for meterset quantities. Positions and
+            energies always use GEOMETRY_TOLERANCE regardless of this.
+
+    Raises:
+        PlanVerificationError: If any check fails. The message lists every failure.
+    """
+    after = snapshot(dicom)
+    failures = []
+
+    _check(len(after["beams"]) == len(before["beams"]), failures,
+           f"field count changed: {len(before['beams'])} -> {len(after['beams'])}")
+
+    for j, (b, a) in enumerate(zip(before["beams"], after["beams"])):
+        where = f"field {j}"
+
+        _check(len(a["spots_per_cp"]) == len(b["spots_per_cp"]), failures,
+               f"{where}: control point count changed: {len(b['spots_per_cp'])} -> "
+               f"{len(a['spots_per_cp'])}; no layers may be added or removed")
+        _check(len(a["energies"]) == len(b["energies"])
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["energies"], b["energies"])),
+               failures, f"{where}: layer energies were modified")
+
+        # One spot appended per control point: mu on a weighted (even) control point, and
+        # nothing on its twin, which repeats the positions with the weights zeroed.
+        want_mu, want_positions = [], []
+        for i, (start, stop) in enumerate(_slices(b["spots_per_cp"])):
+            want_mu += b["spot_mu"][start:stop] + [mu if i % 2 == 0 else 0.0]
+            want_positions += b["positions"][2 * start:2 * stop] + list(position)
+
+        _check(len(a["spot_mu"]) == len(want_mu), failures,
+               f"{where}: spot count is {len(a['spot_mu'])}, expected {len(want_mu)}, "
+               f"one more per control point")
+        _check(all(_close(x, y, tolerance) for x, y in zip(a["spot_mu"], want_mu)), failures,
+               f"{where}: the plan's own spots changed, or a dummy spot does not deliver {mu} MU")
+        _check(len(a["positions"]) == len(want_positions)
+               and all(_close(x, y, GEOMETRY_TOLERANCE)
+                       for x, y in zip(a["positions"], want_positions)),
+               failures, f"{where}: a dummy spot is not at {position}, or the plan's own "
+                         "spot positions changed")
+
+        layers = len(b["spots_per_cp"]) // 2
+        want_meterset = b["beam_meterset"] + layers * mu
+        _check(_close(a["beam_meterset"], want_meterset, tolerance), failures,
+               f"{where}: BeamMeterset {a['beam_meterset']:.6f} MU, "
+               f"expected {want_meterset:.6f} MU")
+
+        got_total = sum(a["spot_mu"])
+        _check(_close(got_total, a["beam_meterset"], tolerance), failures,
+               f"{where}: BeamMeterset {a['beam_meterset']:.6f} MU disagrees with the "
+               f"sum of its spots, {got_total:.6f} MU")
+
+        if b["beam_dose"] is not None and a["beam_dose"] is not None:
+            # Unchanged: the dummy spots land off axis, not at the dose reference point.
+            _check(_close(a["beam_dose"], b["beam_dose"], tolerance), failures,
+                   f"{where}: BeamDose {a['beam_dose']:.6f}, expected it unchanged at "
+                   f"{b['beam_dose']:.6f} Gy(RBE)")
+
+    failures += _sequence_failures(dicom)
+
+    if failures:
+        raise PlanVerificationError(
+            f"Dummy spot verification FAILED for {mu} MU at {position} "
+            f"(tolerance {tolerance:.1e}). This plan must not be delivered:\n  - "
+            + "\n  - ".join(failures))
+
+    logger.info(f"Dummy spots verified independently: {mu} MU at {position}, "
+                f"tolerance {tolerance:.1e}, all checks passed.")
