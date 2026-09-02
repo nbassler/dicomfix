@@ -134,6 +134,42 @@ class TestMetadata:
         for ib in du.dicom.IonBeamSequence:
             assert ib.TreatmentMachineName == "TR4"
 
+    @pytest.mark.parametrize("keyword,setter,limit", [
+        ("RTPlanLabel", "set_plan_label", 16),
+        ("TreatmentMachineName", "set_treatment_machine", 16),
+        ("PatientName", "set_patient_name", 64),
+        ("ReviewerName", "set_reviewer_name", 64),
+    ])
+    def test_text_at_the_vr_limit_is_accepted(self, du, keyword, setter, limit):
+        getattr(du, setter)("x" * limit)
+
+    @pytest.mark.parametrize("setter,limit", [
+        ("set_plan_label", 16),
+        ("set_treatment_machine", 16),
+        ("set_patient_name", 64),
+        ("set_reviewer_name", 64),
+    ])
+    def test_text_over_the_vr_limit_raises(self, du, setter, limit):
+        """pydicom only warns and writes it anyway, so the plan would fail at the console."""
+        with pytest.raises(ValueError, match="allows at most"):
+            getattr(du, setter)("x" * (limit + 1))
+
+    def test_patient_name_components_share_the_group_budget(self, du):
+        """The 64 is per "=" group, so "^" separated components count against it together.
+
+        pydicom validates it this way too, which is how the first version of this check,
+        splitting on "^", was caught being too permissive.
+        """
+        du.set_patient_name("x" * 32 + "^" + "y" * 31)             # 64 with the separator
+        with pytest.raises(ValueError, match="allows at most"):
+            du.set_patient_name("x" * 32 + "^" + "y" * 32)         # 65
+
+    def test_patient_name_allows_64_per_component_group(self, du):
+        """Two groups of 64 are legal, even though the whole string is 129 characters."""
+        du.set_patient_name("x" * 64 + "=" + "y" * 64)
+        with pytest.raises(ValueError, match="component group"):
+            du.set_patient_name("x" * 64 + "=" + "y" * 65)
+
     def test_set_treatment_machine_custom_name(self, du):
         du.set_treatment_machine("CUSTOM_MACHINE")
         for ib in du.dicom.IonBeamSequence:

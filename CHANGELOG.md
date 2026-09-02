@@ -56,6 +56,11 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
 
 ### Changed
 
+- `-pl`, `-tm`, `-pn` and `-rn` now refuse text longer than the DICOM value representation
+  allows, naming the limit and the length: 16 characters for a plan label or machine name
+  (SH), 64 per component group for a name (PN). pydicom only warns on an overlong value and
+  writes it regardless, so these previously produced a plan that failed at the console
+  rather than in dicomfix.
 - `TargetPrescriptionDose` now scales with `BeamDose`. **Output differs from 1.0.0 for any
   plan carrying a prescription dose.** That tag is only read back on re-import, so
   delivery was unaffected.

@@ -45,6 +45,13 @@ DUMP_SPOT_POSITION = (140.0, 190.0)
 # Half the maximum field size, in mm, so a spot must lie within +/-these to be reachable.
 MAX_FIELD_HALF_SIZE = (150.0, 200.0)
 
+# Maximum length of the DICOM value representations dicomfix writes text into. Going over
+# produces a plan the standard says is invalid, and pydicom does not stop it: it warns and
+# writes the value anyway, so the plan only fails later, at the console. A PN is limited
+# per component group, the parts separated by "=" (alphabetic=ideographic=phonetic); the
+# "^" separated components inside a group share that budget. The others are one string.
+VR_MAX_LENGTH = {"SH": 16, "LO": 64, "PN": 64}
+
 
 class DicomUtil:
     """
@@ -1092,6 +1099,33 @@ class DicomUtil:
 
         return float(final)
 
+    @staticmethod
+    def _check_text_length(value, vr, what):
+        """
+        Refuse text too long for the DICOM value representation it is written into.
+
+        pydicom only warns when a value overruns its VR and writes it regardless, so
+        without this the plan reaches the delivery system before anyone finds out.
+
+        Args:
+            value (str): The text about to be written.
+            vr (str): Its value representation, a key of VR_MAX_LENGTH.
+            what (str): What the value is, for the message.
+
+        Raises:
+            ValueError: If the value, or any component group of a PN, is over the limit.
+        """
+        limit = VR_MAX_LENGTH[vr]
+        # A PN carries up to three component groups separated by "=", each limited on its
+        # own. Everything inside a group, "^" separators included, counts towards its 64.
+        parts = str(value).split("=") if vr == "PN" else [str(value)]
+        for part in parts:
+            if len(part) > limit:
+                where = f" component group '{part}'" if len(parts) > 1 else ""
+                raise ValueError(
+                    f"{what}{where} is {len(part)} characters, but DICOM {vr} allows at most "
+                    f"{limit}: '{value}'")
+
     def set_treatment_machine(self, machine_name):
         """
         Set the treatment machine name for all fields.
@@ -1100,6 +1134,7 @@ class DicomUtil:
             machine_name (str): The name of the new treatment machine.
         """
         d = self.dicom
+        self._check_text_length(machine_name, "SH", "Treatment machine name")
         for ibs in d.IonBeamSequence:
             ibs.TreatmentMachineName = machine_name
         logger.info(f"New Treatment Machine Name  : '{d.IonBeamSequence[-1].TreatmentMachineName}'")
@@ -1112,6 +1147,7 @@ class DicomUtil:
             plan_label (str): The new label for the RT plan.
         """
         d = self.dicom
+        self._check_text_length(plan_label, "SH", "Plan label")
         d.RTPlanLabel = plan_label
         logger.info(f"New RT plan label           : '{d.RTPlanLabel}'")
 
@@ -1123,6 +1159,7 @@ class DicomUtil:
             patient_name (str): The patient's new name.
         """
         d = self.dicom
+        self._check_text_length(patient_name, "PN", "Patient name")
         self.dicom.PatientName = patient_name
         logger.info(f"New patient name {d.PatientName}")
 
@@ -1134,6 +1171,7 @@ class DicomUtil:
             reviewer_name (str): The reviewer's new name.
         """
         d = self.dicom
+        self._check_text_length(reviewer_name, "PN", "Reviewer name")
         d.ReviewerName = reviewer_name
         logger.info(f"New reviewer name {d.ReviewerName}")
 
