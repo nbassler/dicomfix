@@ -128,8 +128,9 @@ which PyQt6 does not bundle:
 $ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0
 ```
 
-Open a plan with **File → Open**, adjust the controls, then press **Export**. Edits are
-queued rather than applied as you go, so nothing is written until you export.
+Open a plan with **File → Open**, or drag a DICOM plan anywhere onto the window. Adjust the
+controls, then press **Export**. Edits are queued rather than applied as you go, so nothing
+is written until you export.
 
 The status bar shows the equivalent `dicomfix` command line for whatever you have queued.
 The GUI applies edits by running that exact command through the same code path as the CLI,

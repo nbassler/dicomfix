@@ -277,13 +277,16 @@ class MainWindow(QMainWindow):
         # Export is the primary action and sat indistinguishable from Reset beside it on
         # Windows. Qt's usual idiom for this, setDefault(True), only renders as a default
         # button inside a QDialog, so an accent style sheet is the portable way to mark it
-        # in a QMainWindow. Setting background-color makes Qt drop native rendering for
-        # this button, so every state has to be spelled out -- :disabled included, since
-        # the button is greyed out whenever no plan is open, and a disabled button that
-        # stayed blue would still look clickable. The disabled colours come from the
-        # palette so they follow the system light/dark theme.
+        # in a QMainWindow.
+        #
+        # Every rule is scoped to :enabled, so the disabled button keeps Qt's own
+        # rendering and greys out exactly as Reset does. Hand-styling :disabled went
+        # wrong: palette(button) and palette(window) are the same colour, so the button
+        # took on the panel's own background and appeared to vanish whenever no plan was
+        # open. Leaving that state unstyled is both simpler and more faithful to the
+        # platform.
         self.pushButton_export.setStyleSheet("""
-            QPushButton {
+            QPushButton:enabled {
                 background-color: #0d6efd;
                 color: white;
                 border: 1px solid #0a58ca;
@@ -291,14 +294,8 @@ class MainWindow(QMainWindow):
                 padding: 3px 16px;   /* matches the native height of Reset beside it */
                 font-weight: bold;
             }
-            QPushButton:hover    { background-color: #3d8bfd; }
-            QPushButton:pressed  { background-color: #0a58ca; }
-            QPushButton:disabled {
-                background-color: palette(button);
-                color: palette(mid);
-                border: 1px solid palette(mid);
-                font-weight: normal;
-            }
+            QPushButton:enabled:hover   { background-color: #3d8bfd; }
+            QPushButton:enabled:pressed { background-color: #0a58ca; }
         """)
 
         # Qt Designer defaults spin boxes to 0..99, too narrow for these quantities.

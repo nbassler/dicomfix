@@ -47,7 +47,8 @@
             <enum>QPlainTextEdit::NoWrap</enum>
            </property>
            <property name="plainText">
-            <string>Open a plan with File - Open.</string>
+            <string>Open a plan with File → Open,
+or drag a DICOM plan onto this window.</string>
            </property>
           </widget>
          </item>
