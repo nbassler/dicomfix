@@ -72,6 +72,18 @@ options:
                         Set range shifter (None, RS2 or RS5) are the only valid options
   -rp, --repainting REPAINTING
                         Repaint each layer multiple times without changing MU.
+  -rl, --repeat_layer REPEAT_LAYER
+                        Repeat the spot list of each energy layer n times, for depth dose curve scanning. No
+                        control points are added, and plan MU and dose grow by n.
+  -rld, --repeat_layer_delay REPEAT_LAYER_DELAY
+                        Insert a delay spot of this many MU between each pass over a layer, so a stepper has
+                        time to move. Requires -rl.
+  -mc, --minimize_current
+                        Append a 1 MU dummy spot to every energy layer, which forces the cyclotron to the
+                        lowest possible beam current.
+  -ds, --dump_spot DUMP_SPOT
+                        Position of the dump area where the spots dicomfix adds itself are placed, x,y [cm].
+                        Applies to both -mc and -rld. Use like -ds="0,14". Default is 14,19.
   -v, --verbosity       Give more output. Option is additive, can be used up to 3 times
   -V, --version         show program's version number and exit
 ```

@@ -10,6 +10,7 @@ import copy
 import datetime
 import logging
 import random
+from decimal import Decimal
 
 import pydicom
 from pydicom.uid import generate_uid
@@ -30,6 +31,26 @@ HLINE = 72 * '-'
 RANGE_SHIFTER_NONE = "NONE"
 # Water equivalent thickness [mm] of the available range shifters.
 RANGE_SHIFTER_WET = {"RS_2CM": 22.8, "RS_5CM": 57.0}
+
+# The dump area, in mm: far out in the field, away from anything being measured, which is
+# where the spots dicomfix adds itself put their dose. Two options place spots there, for
+# different reasons -- a delay spot (-rld) so the scanning magnets have to sweep out and
+# back, which is what buys the delay, and a dummy spot (-mc) so a 1 MU spot can hold the
+# cyclotron at its lowest current -- but the dose of both has to be dumped somewhere that
+# is not the target, so they share one position, overridable with -ds. Taken from the
+# TR3/TR4 spot measurement plan (XRV4000), which uses this exact position, so it is known
+# to be deliverable. The maximum field is 300 x 400 mm, i.e. x +/-150 and y +/-200.
+DUMP_SPOT_POSITION = (140.0, 190.0)
+
+# Half the maximum field size, in mm, so a spot must lie within +/-these to be reachable.
+MAX_FIELD_HALF_SIZE = (150.0, 200.0)
+
+# Maximum length of the DICOM value representations dicomfix writes text into. Going over
+# produces a plan the standard says is invalid, and pydicom does not stop it: it warns and
+# writes the value anyway, so the plan only fails later, at the console. A PN is limited
+# per component group, the parts separated by "=" (alphabetic=ideographic=phonetic); the
+# "^" separated components inside a group share that budget. The others are one string.
+VR_MAX_LENGTH = {"SH": 16, "LO": 64, "PN": 64}
 
 
 class DicomUtil:
@@ -133,8 +154,45 @@ class DicomUtil:
         if config.range_shifter:
             self.set_range_shifter(config.range_shifter)
 
+        # Both rewrite the same spot lists, one dividing the meterset and one multiplying
+        # it, so the result of combining them is not something anyone means to ask for.
+        # Checked before either runs, so neither half is applied to a refused combination.
+        if config.repeat_layer and config.repainting:
+            raise ValueError(
+                "-rl/--repeat_layer cannot be combined with -rp/--repainting: both rewrite the "
+                "spot list of every layer, -rp dividing the MU and -rl multiplying it.")
+
         if config.repainting:
             self.set_repainting(config.repainting)
+
+        # "is not None", not truthiness: -rld=0 is an invalid delay, but it is still the
+        # option being given, and giving it without -rl has to say so rather than pass
+        # silently. The value itself is rejected by repeat_layer_spots().
+        if config.repeat_layer_delay is not None and not config.repeat_layer:
+            raise ValueError(
+                "-rld/--repeat_layer_delay needs -rl/--repeat_layer: a delay spot goes between "
+                "passes over a layer, and without -rl there is only one pass.")
+
+        # After rescaling, so -rf and -rd act on the plan before the delay spots exist and
+        # can never push them below MU_MIN.
+        # It only says where dicomfix's own added spots go, so on its own it does nothing.
+        # Saying so beats writing a plan which silently ignored it.
+        # "is not None" again, for the same reason as above: -rld=0 is the option being
+        # given, so -ds alongside it must not be refused for lacking it. The delay value
+        # itself is rejected by repeat_layer_spots().
+        if config.dump_spot is not None and not (config.minimize_current or config.repeat_layer_delay is not None):
+            raise ValueError(
+                "-ds/--dump_spot needs -mc/--minimize_current or -rld/--repeat_layer_delay: "
+                "it moves the spots those options add, and on its own there are none.")
+
+        if config.repeat_layer:
+            self.repeat_layer_spots(config.repeat_layer, delay_mu=config.repeat_layer_delay,
+                                    spot_position=config.dump_spot)
+
+        # After the layer repeats, so each layer gets one dummy spot rather than one per
+        # pass, and after rescaling, so its 1 MU is not scaled into something else.
+        if config.minimize_current:
+            self.minimize_current(spot_position=config.dump_spot)
 
         # Field duplication must be done last, when all other modifications are done
         if config.duplicate_fields:
@@ -697,6 +755,404 @@ class DicomUtil:
 
             logger.info(f"Repainting field {ib.BeamName} with {n} times the number of spots.")
 
+    def repeat_layer_spots(self, n, delay_mu=None, spot_position=None):
+        """
+        Repeat the spot list of every energy layer n times, in place.
+
+        The layer's spot pattern is delivered n times in a row before the plan moves on to
+        the next energy, and with delay_mu a delay spot is shimmed into each gap between
+        consecutive passes:
+
+            layer 1 (E1):  [spots] D [spots] D ... [spots]     n passes, n-1 delay spots
+            layer 2 (E2):  [spots] D [spots] D ... [spots]
+
+        This is for depth dose curve scanning: a stepper actuator advances the detector
+        one position between passes, so a whole curve is measured in a single delivery
+        rather than one beam request per point. The delay spot sits far out in the field,
+        at DUMP_SPOT_POSITION unless spot_position says otherwise, forcing the scanning
+        magnets to sweep there and back,
+        which buys the actuator the time it needs to reach the next position.
+
+        Nothing is added to the IonControlPointSequence: the control point count, the layer
+        energies and their order are untouched. That is deliberate, and it is what makes
+        this deliverable. The delivery system requires the energy layers of a field to be
+        strictly decreasing, so any scheme which repeats or inserts layers steps the energy
+        back up and is refused by the console.
+
+        Unlike set_repainting(), the weights are not divided: every pass delivers the
+        original per-spot MU, so the layer delivers n times its MU and each detector
+        position receives what the original plan gave. Every total therefore changes:
+        FinalCumulativeMetersetWeight and BeamMeterset grow with the repeats and the delay
+        spots, while BeamDose grows by n alone, since the delay spots dump into a sink far
+        out in the field and must not count towards the target dose.
+
+        Args:
+            n (int): Number of passes over each layer's spot list. 1 is a no-op.
+            delay_mu (float, optional): Monitor units of the delay spot placed between
+                consecutive passes. None inserts no delay spots.
+            spot_position (tuple of float, optional): Where to put the delay spots, (x, y)
+                in mm. None uses DUMP_SPOT_POSITION.
+
+        Raises:
+            ValueError: If n is not an integer of at least 1, if delay_mu is below MU_MIN,
+                if spot_position lies outside the maximum field, or if a field has no
+                control points, no total meterset weight, or no beam meterset to convert
+                MU against.
+            verify.PlanVerificationError: If the independent check finds the expanded plan
+                does not deliver the original pattern n times. It must not be saved.
+        """
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise ValueError(f"Number of layer repeats must be an integer of at least 1, got {n!r}.")
+
+        if delay_mu is not None:
+            if not isinstance(delay_mu, (int, float)) or isinstance(delay_mu, bool):
+                raise ValueError(f"Delay spot meterset must be a number of MU, got {delay_mu!r}.")
+            if delay_mu < MU_MIN:
+                raise ValueError(
+                    f"Delay spot meterset must be at least {MU_MIN} MU, got {delay_mu}. "
+                    "A smaller spot is not deliverable and would be discarded, silently "
+                    "removing the delay.")
+
+        position = self._dump_spot_position(spot_position)
+        d = self.dicom
+
+        if n == 1:
+            logger.info("Layer repeat of 1 requested, plan left unchanged.")
+            if delay_mu:
+                logger.warning("No delay spots inserted: they go between passes, and 1 pass has no gaps.")
+            return
+
+        # Measured before anything is touched, for the independent check at the end.
+        _before = verify.snapshot(d)
+
+        for j, ib in enumerate(d.IonBeamSequence):
+            icps = ib.IonControlPointSequence
+
+            # The spot count is read off icps[0] below. An empty sequence is a malformed
+            # plan, and saying so beats an IndexError from deep inside the expansion.
+            if not icps:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has an empty IonControlPointSequence, "
+                    "so it has no layers to repeat.")
+
+            original_final = float(ib.FinalCumulativeMetersetWeight)
+
+            # Everything below is expressed per unit meterset weight, which a field with
+            # no total weight does not have. Say so, rather than divide by zero.
+            if original_final <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has FinalCumulativeMetersetWeight "
+                    f"{original_final}, so its MU per meterset weight is undefined and its "
+                    "layers cannot be repeated.")
+
+            rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
+            original_beam_meterset = float(rb.BeamMeterset)
+            meterset_per_weight = original_beam_meterset / original_final
+
+            # A field which declares a total weight but no MU to go with it. The delay MU
+            # below could not be converted to a weight, and repeating a field that
+            # delivers nothing is not what anyone is asking for either.
+            if meterset_per_weight <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has BeamMeterset {original_beam_meterset}, "
+                    "so its MU per meterset weight is undefined and its layers cannot be repeated.")
+
+            self._warn_if_energies_do_not_decrease(ib, j)
+
+            # The plan stores meterset weights, not MU, so the requested delay MU is
+            # converted the same way minimize_plan() and set_repainting() do. Full
+            # precision: the weights are FL, and it is the cumulative weights which have
+            # to fit a DS, which _renumber_cumulative_weights() takes care of.
+            delay_weight = delay_mu / meterset_per_weight if delay_mu else 0.0
+
+            original_spots = icps[0].NumberOfScanSpotPositions
+            for i, icp in enumerate(icps):
+                weights = self._spot_weights(icp)
+                positions = list(icp.ScanSpotPositionMap)
+
+                # Every second control point repeats the positions with the weights
+                # zeroed, so only the even ones carry meterset -- delay spots included.
+                pass_weights = weights if i % 2 == 0 else [0.0] * len(weights)
+                gap_weight = delay_weight if i % 2 == 0 else 0.0
+
+                new_weights, new_positions = [], []
+                for repeat in range(n):
+                    new_weights += pass_weights
+                    new_positions += positions
+                    if delay_mu and repeat < n - 1:
+                        new_weights.append(gap_weight)
+                        new_positions += list(position)
+
+                icp.ScanSpotMetersetWeights = new_weights
+                icp.ScanSpotPositionMap = new_positions
+                icp.NumberOfScanSpotPositions = len(new_weights)
+
+            new_final = self._renumber_cumulative_weights(icps)
+            ib.FinalCumulativeMetersetWeight = new_final
+
+            # Derived from the weights rather than multiplied by n, so the declared total
+            # matches the spots underneath it with the delay spots counted in.
+            rb.BeamMeterset = new_final * meterset_per_weight
+            if "BeamDose" in rb:
+                rb.BeamDose = float(rb.BeamDose) * n
+
+            layers = len(icps) // 2
+            delay_spots = layers * (n - 1) if delay_mu else 0
+            logger.info(f"Repeating the spot list of each layer in field #{j+1:02} "
+                        f"'{ib.BeamName}' {n} times.")
+            logger.info("                                           Original           New   ")
+            logger.info(HLINE)
+            logger.info("Spots in first energy layer        : " +
+                        f"{original_spots:14}  {icps[0].NumberOfScanSpotPositions:14}  ")
+            logger.info("Final Cumulative Meterset Weight   : " +
+                        f"{original_final:14.2f}  {new_final:14.2f}  ")
+            logger.info("Beam Meterset                      : " +
+                        f"{original_beam_meterset:14.2f}  {float(rb.BeamMeterset):14.2f}  MU ")
+            logger.info("Number of control points           : " +
+                        f"{ib.NumberOfControlPoints:14}  {ib.NumberOfControlPoints:14}  (unchanged)")
+            logger.info(HLINE)
+
+            if delay_mu:
+                # Warning level, so the extra MU and the dose caveat are seen without -v.
+                delivered = delay_weight * meterset_per_weight
+                x, y = position
+                logger.warning(f"Inserted {delay_spots} delay spot(s) of {delivered:.2f} MU at "
+                               f"({x * 0.1:.1f},{y * 0.1:.1f}) cm, {n - 1} per layer, "
+                               f"adding {delay_spots * delivered:.2f} MU to field #{j+1:02}.")
+                logger.warning("Beam Dose is n times the original and does NOT include the delay spots.")
+            logger.warning(f"Field #{j+1:02} now has {icps[0].NumberOfScanSpotPositions} spots in its "
+                           "first energy layer. Check this is within what the console accepts.")
+
+        # Independent check that the expanded plan delivers the original pattern n times,
+        # recomputed from the DICOM tags by code which shares nothing with the above.
+        verify.verify_layer_spot_repeat(_before, d, n,
+                                        delay_mu=delay_mu, delay_position=position)
+
+    def minimize_current(self, spot_position=None):
+        """
+        Append a 1 MU dummy spot to the end of every energy layer.
+
+        The cyclotron picks its beam current from what a layer has to deliver, so a layer
+        holding one very small spot has to be delivered at the lowest current the machine
+        can produce. Adding a spot of MU_MIN, the smallest deliverable, therefore pins the
+        whole plan to that floor, which is what issue #30 asks for.
+
+        The dummy spot goes at DUMP_SPOT_POSITION, or wherever spot_position says, far
+        out in the field, because its dose is real and has to land somewhere that is not
+        the target. One per energy layer, since the current is chosen per layer, and
+        appended at the end of the layer's spot list.
+
+        BeamMeterset grows by 1 MU per layer, but BeamDose does not: that dose lands off
+        axis rather than at the dose reference point. The plan therefore no longer carries
+        a single Gy per MU ratio, which is reported.
+
+        Independent of every other option. With -rl it runs afterwards, so each layer gets
+        one dummy spot rather than one per pass.
+
+        Args:
+            spot_position (tuple of float, optional): Where to put the dummy spots, (x, y)
+                in mm. None uses DUMP_SPOT_POSITION.
+
+        Raises:
+            ValueError: If spot_position lies outside the maximum field, or if a field has
+                no total meterset weight and no beam meterset to convert MU against.
+            verify.PlanVerificationError: If the independent check finds the plan does not
+                carry exactly the spots it should. It must not be saved.
+        """
+        position = self._dump_spot_position(spot_position)
+        d = self.dicom
+
+        # Measured before anything is touched, for the independent check at the end.
+        _before = verify.snapshot(d)
+
+        for j, ib in enumerate(d.IonBeamSequence):
+            icps = ib.IonControlPointSequence
+            original_final = float(ib.FinalCumulativeMetersetWeight)
+
+            if original_final <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has FinalCumulativeMetersetWeight "
+                    f"{original_final}, so its MU per meterset weight is undefined and a "
+                    "1 MU spot cannot be sized.")
+
+            rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
+            original_beam_meterset = float(rb.BeamMeterset)
+            meterset_per_weight = original_beam_meterset / original_final
+
+            # Same as in repeat_layer_spots(), and unconditional here: sizing the dummy
+            # spot divides by this, so a field with no MU has nothing to size it against.
+            if meterset_per_weight <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has BeamMeterset {original_beam_meterset}, "
+                    "so its MU per meterset weight is undefined and a 1 MU spot cannot be sized.")
+
+            # Full precision, not rounded: the spot weights are FL, and it is the
+            # cumulative weights which have to fit a DS. _renumber_cumulative_weights()
+            # quantizes those, so rounding here would only cost the spot accuracy.
+            dummy_weight = MU_MIN / meterset_per_weight
+
+            smallest_before = min((float(w) * meterset_per_weight
+                                   for icp in icps for w in self._spot_weights(icp) if float(w) > 0.0),
+                                  default=0.0)
+
+            for i, icp in enumerate(icps):
+                weights = [float(w) for w in self._spot_weights(icp)]
+                positions = list(icp.ScanSpotPositionMap)
+
+                # Every second control point repeats the positions with the weights zeroed,
+                # so only the even ones carry meterset.
+                weights.append(dummy_weight if i % 2 == 0 else 0.0)
+                positions += list(position)
+
+                icp.ScanSpotMetersetWeights = weights
+                icp.ScanSpotPositionMap = positions
+                icp.NumberOfScanSpotPositions = len(weights)
+
+            new_final = self._renumber_cumulative_weights(icps)
+            ib.FinalCumulativeMetersetWeight = new_final
+            # BeamDose is deliberately left alone: the dummy spots land in the dump area, not at
+            # the dose reference point.
+            rb.BeamMeterset = new_final * meterset_per_weight
+
+            layers = len(icps) // 2
+            x, y = position
+            logger.warning(f"Added {layers} dummy spot(s) of {MU_MIN:.2f} MU at "
+                           f"({x * 0.1:.1f},{y * 0.1:.1f}) cm, one per energy layer, "
+                           f"adding {layers * MU_MIN:.2f} MU to field #{j+1:02}.")
+            logger.info(f"Smallest spot in field #{j+1:02} was {smallest_before:.2f} MU, "
+                        f"now {MU_MIN:.2f} MU, so the plan runs at the lowest beam current.")
+            logger.warning("Beam Dose is unchanged and does NOT include the dummy spots.")
+
+        verify.verify_dummy_spot_added(_before, d, MU_MIN, position)
+
+    @staticmethod
+    def _dump_spot_position(position):
+        """
+        Resolve and check where dicomfix's own added spots go.
+
+        Args:
+            position (tuple of float, optional): (x, y) in mm, or None for the default.
+
+        Returns:
+            tuple of float: (x, y) in mm.
+
+        Raises:
+            ValueError: If the position is not an x,y pair, or lies outside the maximum
+                field, where the scanning magnets cannot put a spot at all.
+        """
+        if position is None:
+            return DUMP_SPOT_POSITION
+
+        if len(position) != 2:
+            raise ValueError(f"Spot position expects two values, x and y, got {position!r}.")
+
+        x, y = (float(v) for v in position)
+        limit_x, limit_y = MAX_FIELD_HALF_SIZE
+        if abs(x) > limit_x or abs(y) > limit_y:
+            raise ValueError(
+                f"Spot position ({x * 0.1:.1f},{y * 0.1:.1f}) cm lies outside the maximum field of "
+                f"{2 * limit_x * 0.1:.0f} x {2 * limit_y * 0.1:.0f} cm, so it cannot be delivered.")
+        return (x, y)
+
+    @staticmethod
+    def _spot_weights(icp):
+        """Scan spot meterset weights of one control point, always as a list of float.
+
+        A single spot is not stored as a list by pydicom. NumberOfScanSpotPositions, not
+        isinstance(..., list): after an earlier modification pydicom stores these as
+        MultiValue, which is not a list subclass.
+        """
+        if icp.NumberOfScanSpotPositions == 1:
+            return [float(icp.ScanSpotMetersetWeights)]
+        return [float(w) for w in icp.ScanSpotMetersetWeights]
+
+    @staticmethod
+    def _warn_if_energies_do_not_decrease(ib, j):
+        """
+        Report layer energies which do not descend strictly, without changing anything.
+
+        The delivery system requires the energy layers of a field to be strictly
+        decreasing, for the beam line magnets' hysteresis calibration. A plan which
+        breaks that is refused by the console, and this is cheaper to hear about here
+        than there. It is a property of the plan as given, not of anything dicomfix did,
+        so it is reported rather than raised.
+        """
+        energies = [float(icp.NominalBeamEnergy) for icp in ib.IonControlPointSequence[::2]
+                    if "NominalBeamEnergy" in icp]
+        offenders = [(a, b) for a, b in zip(energies, energies[1:]) if b >= a]
+        if offenders:
+            a, b = offenders[0]
+            logger.warning(
+                f"Field #{j+1:02} '{ib.BeamName}' has {len(offenders)} energy layer(s) which do not "
+                f"decrease (first: {a:.3f} -> {b:.3f} MeV). The delivery system may refuse this plan.")
+
+    @staticmethod
+    def _renumber_cumulative_weights(icps):
+        """
+        Recompute the cumulative meterset weights of a control point sequence.
+
+        CumulativeMetersetWeight is the weight delivered up to and not including a control
+        point, so the running total is written before that control point's own spots are
+        added. The dose reference coefficient is the same quantity normalized to 1.
+
+        Decimal, not float: these are written as DS, which allows 16 characters, and a
+        float repr of a long sum overruns that. Summing in Decimal and quantizing also
+        keeps the sequence exactly monotonic.
+
+        Args:
+            icps (Sequence): Control points of one field, with their weights already set.
+
+        Returns:
+            float: The new FinalCumulativeMetersetWeight, which the caller must store.
+        """
+        places = Decimal("0.000001")
+
+        running = Decimal(0)
+        cumulative = []
+        for icp in icps:
+            cumulative.append(running)
+            weights = ([icp.ScanSpotMetersetWeights] if icp.NumberOfScanSpotPositions == 1
+                       else icp.ScanSpotMetersetWeights)
+            running += sum((Decimal(str(float(w))) for w in weights), Decimal(0))
+
+        final = running.quantize(places)
+
+        for icp, weight in zip(icps, cumulative):
+            icp.CumulativeMetersetWeight = float(weight.quantize(places))
+            # Runs 0 to 1 across the sequence. Absent on plans not put through -rs.
+            if hasattr(icp, "ReferencedDoseReferenceSequence"):
+                icp.ReferencedDoseReferenceSequence[0].CumulativeDoseReferenceCoefficient = \
+                    float(weight / running) if running else 0.0
+
+        return float(final)
+
+    @staticmethod
+    def _check_text_length(value, vr, what):
+        """
+        Refuse text too long for the DICOM value representation it is written into.
+
+        pydicom only warns when a value overruns its VR and writes it regardless, so
+        without this the plan reaches the delivery system before anyone finds out.
+
+        Args:
+            value (str): The text about to be written.
+            vr (str): Its value representation, a key of VR_MAX_LENGTH.
+            what (str): What the value is, for the message.
+
+        Raises:
+            ValueError: If the value, or any component group of a PN, is over the limit.
+        """
+        limit = VR_MAX_LENGTH[vr]
+        # A PN carries up to three component groups separated by "=", each limited on its
+        # own. Everything inside a group, "^" separators included, counts towards its 64.
+        parts = str(value).split("=") if vr == "PN" else [str(value)]
+        for part in parts:
+            if len(part) > limit:
+                where = f" component group '{part}'" if len(parts) > 1 else ""
+                raise ValueError(
+                    f"{what}{where} is {len(part)} characters, but DICOM {vr} allows at most "
+                    f"{limit}: '{value}'")
+
     def set_treatment_machine(self, machine_name):
         """
         Set the treatment machine name for all fields.
@@ -705,6 +1161,7 @@ class DicomUtil:
             machine_name (str): The name of the new treatment machine.
         """
         d = self.dicom
+        self._check_text_length(machine_name, "SH", "Treatment machine name")
         for ibs in d.IonBeamSequence:
             ibs.TreatmentMachineName = machine_name
         logger.info(f"New Treatment Machine Name  : '{d.IonBeamSequence[-1].TreatmentMachineName}'")
@@ -717,6 +1174,7 @@ class DicomUtil:
             plan_label (str): The new label for the RT plan.
         """
         d = self.dicom
+        self._check_text_length(plan_label, "SH", "Plan label")
         d.RTPlanLabel = plan_label
         logger.info(f"New RT plan label           : '{d.RTPlanLabel}'")
 
@@ -728,6 +1186,7 @@ class DicomUtil:
             patient_name (str): The patient's new name.
         """
         d = self.dicom
+        self._check_text_length(patient_name, "PN", "Patient name")
         self.dicom.PatientName = patient_name
         logger.info(f"New patient name {d.PatientName}")
 
@@ -739,6 +1198,7 @@ class DicomUtil:
             reviewer_name (str): The reviewer's new name.
         """
         d = self.dicom
+        self._check_text_length(reviewer_name, "PN", "Reviewer name")
         d.ReviewerName = reviewer_name
         logger.info(f"New reviewer name {d.ReviewerName}")
 

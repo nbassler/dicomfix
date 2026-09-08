@@ -189,6 +189,118 @@ def test_duplicate_fields_doubles_count(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Layer spot repetition
+# ---------------------------------------------------------------------------
+
+def test_repeat_layer_extends_the_spot_list(tmp_path):
+    out = tmp_path / "out.dcm"
+    ib_in = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0]
+    spots = ib_in.IonControlPointSequence[0].NumberOfScanSpotPositions
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-o', str(out)])
+    ib = DicomUtil(str(out)).dicom.IonBeamSequence[0]
+    assert ib.IonControlPointSequence[0].NumberOfScanSpotPositions == spots * 3 + 2
+    # The layer structure is what keeps the plan deliverable, so it must be untouched.
+    assert ib.NumberOfControlPoints == ib_in.NumberOfControlPoints
+    assert [float(icp.NominalBeamEnergy) for icp in ib.IonControlPointSequence] == \
+           [float(icp.NominalBeamEnergy) for icp in ib_in.IonControlPointSequence]
+
+
+def test_repeat_layer_meterset(tmp_path):
+    out = tmp_path / "out.dcm"
+    d_in = DicomUtil(str(PLAN_FILE)).dicom
+    orig_mu = float(d_in.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    layers = len(d_in.IonBeamSequence[0].IonControlPointSequence) // 2
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-o', str(out)])
+    rb = DicomUtil(str(out)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 3 + layers * 2 * 20.0)
+
+
+def test_repeat_layer_after_rescale(tmp_path):
+    """-rf must scale one pass, then -rl repeats it: MU x2 x3, not x2 twice."""
+    out = tmp_path / "out.dcm"
+    orig_mu = float(DicomUtil(str(PLAN_FILE)).dicom
+                    .FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+    dicomfix.main.main([str(PLAN_FILE), '-rf=2', '-rl=3', '-o', str(out)])
+    rb = DicomUtil(str(out)).dicom.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu * 6)
+
+
+@pytest.mark.parametrize("delay", ['-rld=20', '-rld=0'])
+def test_delay_without_repeat_layer_is_refused(tmp_path, delay):
+    """Including -rld=0: an invalid delay, but the option was still given without -rl."""
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="repeat_layer"):
+        dicomfix.main.main([str(PLAN_FILE), delay, '-o', str(out)])
+
+
+def test_minimize_current_appends_one_mu_spot(tmp_path):
+    from dicomfix.dicomutil import DUMP_SPOT_POSITION, MU_MIN
+    out = tmp_path / "out.dcm"
+    d_in = DicomUtil(str(PLAN_FILE)).dicom
+    spots = d_in.IonBeamSequence[0].IonControlPointSequence[0].NumberOfScanSpotPositions
+    layers = len(d_in.IonBeamSequence[0].IonControlPointSequence) // 2
+    orig_mu = float(d_in.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset)
+
+    dicomfix.main.main([str(PLAN_FILE), '-mc', '-o', str(out)])
+    d = DicomUtil(str(out)).dicom
+    icp = d.IonBeamSequence[0].IonControlPointSequence[0]
+    assert icp.NumberOfScanSpotPositions == spots + 1
+    assert list(icp.ScanSpotPositionMap)[-2:] == list(DUMP_SPOT_POSITION)
+    rb = d.FractionGroupSequence[0].ReferencedBeamSequence[0]
+    assert float(rb.BeamMeterset) == pytest.approx(orig_mu + layers * MU_MIN)
+
+
+def test_minimize_current_with_repeat_layer(tmp_path):
+    """One dummy spot per layer, not one per pass."""
+    out = tmp_path / "out.dcm"
+    spots = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0] \
+        .IonControlPointSequence[0].NumberOfScanSpotPositions
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-mc', '-o', str(out)])
+    icp = DicomUtil(str(out)).dicom.IonBeamSequence[0].IonControlPointSequence[0]
+    assert icp.NumberOfScanSpotPositions == spots * 3 + 2 + 1
+
+
+def test_dump_spot_override_moves_both_spot_types(tmp_path):
+    """-ds is given in cm and moves the dummy spot and the delay spots alike."""
+    out = tmp_path / "out.dcm"
+    spots = DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence[0] \
+        .IonControlPointSequence[0].NumberOfScanSpotPositions
+    dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rld=20', '-mc', '-ds=0.0,14.0', '-o', str(out)])
+    positions = list(DicomUtil(str(out)).dicom.IonBeamSequence[0]
+                     .IonControlPointSequence[0].ScanSpotPositionMap)
+    assert positions[-2:] == [0.0, 140.0]                       # the dummy spot
+    for repeat in range(2):                                     # the delay spots
+        k = (repeat + 1) * spots + repeat
+        assert positions[2 * k:2 * k + 2] == [0.0, 140.0]
+
+
+def test_dump_spot_outside_the_field_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="outside the maximum field"):
+        dicomfix.main.main([str(PLAN_FILE), '-mc', '-ds=0,25', '-o', str(out)])
+
+
+def test_dump_spot_without_anything_to_place_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="dump_spot"):
+        dicomfix.main.main([str(PLAN_FILE), '-ds=0,14', '-o', str(out)])
+
+
+def test_dump_spot_with_zero_delay_is_refused_for_the_delay_not_the_dump_spot(tmp_path):
+    """-rld=0 is the option being given, so -ds alongside it must be told the real problem."""
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="Delay spot meterset"):
+        dicomfix.main.main([str(PLAN_FILE), '-rl=2', '-rld=0', '-ds=0,14', '-o', str(out)])
+
+
+def test_repeat_layer_with_repainting_is_refused(tmp_path):
+    """One divides the layer MU, the other multiplies it."""
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="repainting"):
+        dicomfix.main.main([str(PLAN_FILE), '-rl=3', '-rp=2', '-o', str(out)])
+
+
+# ---------------------------------------------------------------------------
 # Tolerance table
 # ---------------------------------------------------------------------------
 

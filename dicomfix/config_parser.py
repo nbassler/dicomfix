@@ -75,6 +75,19 @@ def parse_arguments(args=None):
                         help='Set range shifter (None, RS2 or RS5) are the only valid options')
     parser.add_argument('-rp', '--repainting', type=int, default=None,
                         help='Repaint each layer multiple times without changing MU.')
+    parser.add_argument('-rl', '--repeat_layer', type=int, default=None,
+                        help='Repeat the spot list of each energy layer n times, for depth dose curve '
+                             'scanning. No control points are added, and plan MU and dose grow by n.')
+    parser.add_argument('-rld', '--repeat_layer_delay', type=float, default=None,
+                        help='Insert a delay spot of this many MU between each pass over a layer, '
+                             'so a stepper has time to move. Requires -rl.')
+    parser.add_argument('-mc', '--minimize_current', action='store_true', default=False,
+                        help='Append a 1 MU dummy spot to every energy layer, which forces the '
+                             'cyclotron to the lowest possible beam current.')
+    parser.add_argument('-ds', '--dump_spot', type=str, default=None,
+                        help='Position of the dump area where the spots dicomfix adds itself are '
+                             'placed, x,y [cm]. Applies to both -mc and -rld. Use like -ds="0,14". '
+                             'Default is 14,19.')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='Give more output. Option is additive, can be used up to 3 times')
     parser.add_argument('-V', '--version', action='version', version=f'dicomfix {__version__}')
