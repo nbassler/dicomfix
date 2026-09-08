@@ -274,6 +274,33 @@ class MainWindow(QMainWindow):
         inspect_font.setStyleHint(QFont.StyleHint.Monospace)
         self.plainTextEdit_inspect.setFont(inspect_font)
 
+        # Export is the primary action and sat indistinguishable from Reset beside it on
+        # Windows. Qt's usual idiom for this, setDefault(True), only renders as a default
+        # button inside a QDialog, so an accent style sheet is the portable way to mark it
+        # in a QMainWindow. Setting background-color makes Qt drop native rendering for
+        # this button, so every state has to be spelled out -- :disabled included, since
+        # the button is greyed out whenever no plan is open, and a disabled button that
+        # stayed blue would still look clickable. The disabled colours come from the
+        # palette so they follow the system light/dark theme.
+        self.pushButton_export.setStyleSheet("""
+            QPushButton {
+                background-color: #0d6efd;
+                color: white;
+                border: 1px solid #0a58ca;
+                border-radius: 4px;
+                padding: 3px 16px;   /* matches the native height of Reset beside it */
+                font-weight: bold;
+            }
+            QPushButton:hover    { background-color: #3d8bfd; }
+            QPushButton:pressed  { background-color: #0a58ca; }
+            QPushButton:disabled {
+                background-color: palette(button);
+                color: palette(mid);
+                border: 1px solid palette(mid);
+                font-weight: normal;
+            }
+        """)
+
         # Qt Designer defaults spin boxes to 0..99, too narrow for these quantities.
         self.doubleSpinBox_gantry.setRange(0.0, 360.0)
         self.doubleSpinBox_couch.setRange(-360.0, 360.0)
