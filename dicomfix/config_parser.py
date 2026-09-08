@@ -24,8 +24,6 @@ def parse_arguments(args=None):
 
     parser.add_argument('-w', '--weights', help='Path to weights CSV file', default=None)
     parser.add_argument('-o', '--output', default="output.dcm", help='Path to output DICOM file')
-    parser.add_argument('-e', '--export_racehorse', default=None,
-                        help='Basename for spot list, in Varian RACEHORSE csv-format.')
 
     parser.add_argument('-a', '--approve', action='store_true', default=False, help='Set plan to APPROVED')
     parser.add_argument('-dt', '--date', action='store_true', default=False, help='Set RT date to now')

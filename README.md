@@ -12,11 +12,11 @@ Script and GUI for manipulating dicom plans
 
 ```console
 $ dicomfix -h
-usage: dicomfix [-h] [-w WEIGHTS] [-o OUTPUT] [-e EXPORT_RACEHORSE] [-a] [-dt] [-ic] [-i] [-ia] [-tr4] [-rs]
-                [-p PRINT_SPOTS] [-g GANTRY_ANGLES] [-d DUPLICATE_FIELDS] [-rd RESCALE_DOSE]
-                [-rf RESCALE_FACTOR] [-rm] [-tp TABLE_POSITION] [-tt] [-sp SNOUT_POSITION]
-                [-tm TREATMENT_MACHINE] [-pl PLAN_LABEL] [-pn PATIENT_NAME] [-rn REVIEWER_NAME]
-                [-rh RANGE_SHIFTER] [-rp REPAINTING] [-v] [-V]
+usage: dicomfix [-h] [-w WEIGHTS] [-o OUTPUT] [-a] [-dt] [-ic] [-i] [-ia] [-tr4] [-rs] [-p PRINT_SPOTS]
+                [-g GANTRY_ANGLES] [-d DUPLICATE_FIELDS] [-rd RESCALE_DOSE] [-rf RESCALE_FACTOR] [-rm]
+                [-tp TABLE_POSITION] [-tt] [-sp SNOUT_POSITION] [-tm TREATMENT_MACHINE] [-pl PLAN_LABEL]
+                [-pn PATIENT_NAME] [-rn REVIEWER_NAME] [-rh RANGE_SHIFTER] [-rp REPAINTING]
+                [-rl REPEAT_LAYER] [-rld REPEAT_LAYER_DELAY] [-mc] [-ds DUMP_SPOT] [-v] [-V]
                 [inputfile]
 
 Modify ECLIPSE DICOM proton therapy treatment plans.
@@ -29,8 +29,6 @@ options:
   -w, --weights WEIGHTS
                         Path to weights CSV file
   -o, --output OUTPUT   Path to output DICOM file
-  -e, --export_racehorse EXPORT_RACEHORSE
-                        Basename for spot list, in Varian RACEHORSE csv-format.
   -a, --approve         Set plan to APPROVED
   -dt, --date           Set RT date to now
   -ic, --intent_curative
@@ -130,8 +128,9 @@ which PyQt6 does not bundle:
 $ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0
 ```
 
-Open a plan with **File → Open**, adjust the controls, then press **Export**. Edits are
-queued rather than applied as you go, so nothing is written until you export.
+Open a plan with **File → Open**, or drag a DICOM plan anywhere onto the window. Adjust the
+controls, then press **Export**. Edits are queued rather than applied as you go, so nothing
+is written until you export.
 
 The status bar shows the equivalent `dicomfix` command line for whatever you have queued.
 The GUI applies edits by running that exact command through the same code path as the CLI,

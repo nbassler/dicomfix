@@ -5,15 +5,80 @@ Each test exercises one (or a few) CLI option(s) that are not covered by
 test_process.py, verifying both that the command runs and that the resulting
 DICOM file reflects the requested change.
 """
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import dicomfix.main
+from dicomfix.config_parser import parse_arguments
 from dicomfix.dicomutil import DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
+README = Path('README.md')
+
+# The width the README block was generated at. argparse wraps to COLUMNS - 2.
+README_HELP_COLUMNS = "110"
+
+
+def cli_help(monkeypatch, capsys):
+    """The output of `dicomfix -h`, as the README shows it.
+
+    argparse takes its prog from sys.argv[0] and its width from COLUMNS, so both are
+    pinned here rather than inherited from whatever is running the suite.
+    """
+    monkeypatch.setenv("COLUMNS", README_HELP_COLUMNS)
+    monkeypatch.setattr(sys, "argv", ["dicomfix"])
+    with pytest.raises(SystemExit):
+        parse_arguments(["-h"])
+    return capsys.readouterr().out.rstrip("\n")
+
+
+def readme_help_block():
+    """The ```console block in the README that pastes `dicomfix -h`."""
+    text = README.read_text()
+    start = text.index("```console\n$ dicomfix -h\n") + len("```console\n$ dicomfix -h\n")
+    return text[start:text.index("```", start)].rstrip("\n")
+
+
+def usage_synopsis(help_text):
+    """The `usage:` paragraph, up to the blank line before the description."""
+    return help_text[:help_text.index("\n\n")]
+
+
+def option_flags(help_text):
+    """Every -x and --xxx flag named anywhere in the text, as a set."""
+    return set(re.findall(r"(?<![\w-])--?[a-zA-Z][\w-]*", help_text))
+
+
+# The README pastes `dicomfix -h`, and nothing regenerates it when the options change. It
+# has drifted twice: -e outlived its removal from the usage synopsis, and -rl, -rld, -mc
+# and -ds were never added to that synopsis at all. Both times a reviewer caught it rather
+# than the suite.
+#
+# The two halves are checked differently on purpose. The usage synopsis is compared
+# verbatim, which is safe because argparse renders it identically on every supported
+# Python. The options list is compared by the set of flags it names, because argparse
+# does *not* render that identically: 3.13 prints "-w, --weights WEIGHTS" where 3.10 --
+# which CI runs -- prints "-w WEIGHTS, --weights WEIGHTS". Comparing that verbatim would
+# pass for whoever generated the block and fail for everyone else.
+
+_REGENERATE = ("Regenerate the block in README.md with:\n"
+               f"    COLUMNS={README_HELP_COLUMNS} dicomfix -h")
+
+
+def test_readme_usage_synopsis_is_current(monkeypatch, capsys):
+    """Every option appears in the README's `usage:` line, and no removed one lingers."""
+    generated = cli_help(monkeypatch, capsys)
+    assert usage_synopsis(readme_help_block()) == usage_synopsis(generated), _REGENERATE
+
+
+def test_readme_documents_every_option(monkeypatch, capsys):
+    """The README's option list names exactly the flags the parser defines."""
+    generated = cli_help(monkeypatch, capsys)
+    assert option_flags(readme_help_block()) == option_flags(generated), _REGENERATE
 
 
 def inspect_output(dcm_path):
@@ -327,25 +392,3 @@ def test_fix_raystation_manufacturer_in_inspect(tmp_path):
     out = tmp_path / "out.dcm"
     dicomfix.main.main([str(PLAN_FILE), '-rs', '-o', str(out)])
     assert "Varian Medical System Particle Therapy" in inspect_output(out)
-
-
-# ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
-
-def test_export_racehorse_creates_csv(tmp_path):
-    out_dcm = tmp_path / "out.dcm"
-    export_base = str(tmp_path / "spots")
-    dicomfix.main.main([str(PLAN_FILE), '-e', export_base, '-o', str(out_dcm)])
-    csv_files = list(tmp_path.glob("*.csv"))
-    assert len(csv_files) > 0
-
-
-def test_export_racehorse_csv_content(tmp_path):
-    out_dcm = tmp_path / "out.dcm"
-    export_base = str(tmp_path / "spots")
-    dicomfix.main.main([str(PLAN_FILE), '-e', export_base, '-o', str(out_dcm)])
-    csv_files = list(tmp_path.glob("*.csv"))
-    content = csv_files[0].read_text()
-    assert "#HEADER" in content
-    assert "Index;Position x;Position y;Dose" in content

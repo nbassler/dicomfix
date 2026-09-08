@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from dicomfix.dicomexport import DicomExport
 from dicomfix.dicomutil import DUMP_SPOT_POSITION, MU_MIN, DicomUtil
 
 PLAN_FILE = Path('res', 'Plan5.5.dcm')
@@ -999,38 +998,3 @@ class TestInspect:
     def test_reflects_approval_change(self, du):
         du.approve_plan()
         assert "APPROVED" in du.inspect()
-
-
-# ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
-
-class TestExport:
-    def test_export_racehorse_creates_csv_files(self, du, tmp_path):
-        base = str(tmp_path / "export")
-        DicomExport.export_racehorse(du.dicom, base)
-        csv_files = list(tmp_path.glob("*.csv"))
-        assert len(csv_files) > 0
-
-    def test_export_racehorse_csv_has_header(self, du, tmp_path):
-        base = str(tmp_path / "export")
-        DicomExport.export_racehorse(du.dicom, base)
-        csv_files = list(tmp_path.glob("*.csv"))
-        content = csv_files[0].read_text()
-        assert "#HEADER" in content
-        assert "#VALUES" in content
-
-    def test_export_racehorse_filename_contains_mev(self, du, tmp_path):
-        base = str(tmp_path / "export")
-        DicomExport.export_racehorse(du.dicom, base)
-        csv_files = list(tmp_path.glob("*.csv"))
-        assert any("MeV" in f.name for f in csv_files)
-
-    def test_export_unknown_format_raises(self, du, tmp_path):
-        with pytest.raises(ValueError):
-            DicomExport.export(du.dicom, str(tmp_path / "export"), export_format="unknown")
-
-    def test_export_via_main_api(self, du, tmp_path):
-        base = str(tmp_path / "export")
-        DicomExport.export(du.dicom, base, export_format="racehorse")
-        assert len(list(tmp_path.glob("*.csv"))) > 0

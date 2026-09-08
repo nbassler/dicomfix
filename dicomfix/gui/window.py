@@ -20,7 +20,7 @@ import sys
 
 from PyQt6 import uic
 from PyQt6.QtCore import QObject, Qt
-from PyQt6.QtGui import QAction, QIcon, QKeySequence, QWheelEvent
+from PyQt6.QtGui import QAction, QFont, QIcon, QKeySequence, QWheelEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -254,7 +254,49 @@ class MainWindow(QMainWindow):
         self.checkBox_anonymize.setVisible(False)
         self.checkBox_reviewername.setVisible(False)
 
-        self.plainTextEdit_inspect.setStyleSheet("font-family: monospace;")
+        # The inspect output is column-aligned, so it needs a fixed-width font. This was a
+        # style sheet with the CSS generic "monospace", which fontconfig resolves on Linux
+        # but Windows has no such family: there it fell back to the proportional UI font
+        # and the columns broke. Named families in preference order instead, with a style
+        # hint so Qt still picks something fixed-width if none of them are installed.
+        # setFont() rather than a style sheet, because a style sheet would override it.
+        # Ordered best-first per platform: Cascadia Mono ships with Windows 11 and
+        # Consolas with everything since Vista; Menlo with macOS; DejaVu and Liberation
+        # are on most Linux boxes. Courier New is last only because it is the one Windows
+        # is guaranteed to have -- it is a backstop, not a preference.
+        inspect_font = QFont()
+        inspect_font.setFamilies([
+            "Cascadia Mono", "Consolas",        # Windows
+            "Menlo",                            # macOS
+            "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",  # Linux
+            "Courier New",                      # last resort
+        ])
+        inspect_font.setStyleHint(QFont.StyleHint.Monospace)
+        self.plainTextEdit_inspect.setFont(inspect_font)
+
+        # Export is the primary action and sat indistinguishable from Reset beside it on
+        # Windows. Qt's usual idiom for this, setDefault(True), only renders as a default
+        # button inside a QDialog, so an accent style sheet is the portable way to mark it
+        # in a QMainWindow.
+        #
+        # Every rule is scoped to :enabled, so the disabled button keeps Qt's own
+        # rendering and greys out exactly as Reset does. Hand-styling :disabled went
+        # wrong: palette(button) and palette(window) are the same colour, so the button
+        # took on the panel's own background and appeared to vanish whenever no plan was
+        # open. Leaving that state unstyled is both simpler and more faithful to the
+        # platform.
+        self.pushButton_export.setStyleSheet("""
+            QPushButton:enabled {
+                background-color: #0d6efd;
+                color: white;
+                border: 1px solid #0a58ca;
+                border-radius: 4px;
+                padding: 3px 16px;   /* matches the native height of Reset beside it */
+                font-weight: bold;
+            }
+            QPushButton:enabled:hover   { background-color: #3d8bfd; }
+            QPushButton:enabled:pressed { background-color: #0a58ca; }
+        """)
 
         # Qt Designer defaults spin boxes to 0..99, too narrow for these quantities.
         self.doubleSpinBox_gantry.setRange(0.0, 360.0)
@@ -625,7 +667,7 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage(f"Gantry {gantry:g} deg applied to all {n} field(s)", 4000)
 
     def on_about(self):
-        """Show the exact build, including the commit the version was derived from."""
+        """Show the build and the versions of the libraries it is running on."""
         import pydicom
         from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
 
@@ -633,9 +675,7 @@ class MainWindow(QMainWindow):
             self, f"About {APP_NAME}",
             f"<b>{APP_NAME} {short_version()}</b>"
             f"<p>Modify and inspect DICOM proton therapy treatment plans.</p>"
-            f"<p><tt>{__version__}</tt><br>"
-            f"<small>The part after '+' identifies the exact commit this was built from."
-            f"</small></p>"
+            f"<p><tt>{__version__}</tt></p>"
             f"<p>Python {sys.version.split()[0]}<br>"
             f"PyQt {PYQT_VERSION_STR}, Qt {QT_VERSION_STR}<br>"
             f"pydicom {pydicom.__version__}</p>"
@@ -645,8 +685,11 @@ class MainWindow(QMainWindow):
     def on_export(self):
         if self.plan is None:
             return
-        suggested = os.path.join(os.path.dirname(self.plan.filename),
-                                 "modified_" + os.path.basename(self.plan.filename))
+        # "_modified" as a suffix rather than a prefix, so the export sorts next to the
+        # plan it came from instead of being scattered to the top of the directory.
+        # splitext, not a replace: plan names like Plan5.5.dcm carry dots of their own.
+        stem, ext = os.path.splitext(os.path.basename(self.plan.filename))
+        suggested = os.path.join(os.path.dirname(self.plan.filename), f"{stem}_modified{ext}")
         output, _ = QFileDialog.getSaveFileName(
             self, "Export DICOM plan", suggested, "DICOM plans (*.dcm);;All files (*)")
         if not output:

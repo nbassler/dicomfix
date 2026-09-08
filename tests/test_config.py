@@ -17,7 +17,6 @@ def make_namespace(**kwargs):
         'inputfile': None,
         'weights': None,
         'output': 'output.dcm',
-        'export_racehorse': None,
         'approve': False,
         'date': False,
         'intent_curative': False,
