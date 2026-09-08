@@ -71,6 +71,16 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
 - The `gui` extra installs `pyqt6` rather than the stale `pyqt6-tools`, and `dev` now
   includes `gui` and `web` so it can run the whole test suite.
 - Linting moved from flake8 to ruff.
+- **The Windows release assets are now zip archives, not bare executables** (#52):
+  `dicomfix-windows-x86_64.zip` and `dicomfix-gui-windows-x86_64.zip` in place of
+  `dicomfix.exe` and `dicomfix-gui.exe`. Unpack and run the executable from the extracted
+  folder, and keep that folder together — it loads what it needs from the `_internal`
+  directory beside it. The binaries are built with PyInstaller's `--onedir` rather than
+  `--onefile`, because the onefile bootloader unpacks itself into `%TEMP%` and executes
+  from there, which Windows Defender flagged as a trojan and refused to download. Windows
+  still warns that the publisher is unknown, since the binaries are unsigned, but the
+  warning can be overridden. The Linux archives are unchanged in name and now unpack to a
+  directory rather than a single file.
 
 ### Fixed
 
