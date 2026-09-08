@@ -667,7 +667,7 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage(f"Gantry {gantry:g} deg applied to all {n} field(s)", 4000)
 
     def on_about(self):
-        """Show the exact build, including the commit the version was derived from."""
+        """Show the build and the versions of the libraries it is running on."""
         import pydicom
         from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
 

@@ -12,11 +12,11 @@ Script and GUI for manipulating dicom plans
 
 ```console
 $ dicomfix -h
-usage: dicomfix [-h] [-w WEIGHTS] [-o OUTPUT] [-e EXPORT_RACEHORSE] [-a] [-dt] [-ic] [-i] [-ia] [-tr4] [-rs]
-                [-p PRINT_SPOTS] [-g GANTRY_ANGLES] [-d DUPLICATE_FIELDS] [-rd RESCALE_DOSE]
-                [-rf RESCALE_FACTOR] [-rm] [-tp TABLE_POSITION] [-tt] [-sp SNOUT_POSITION]
-                [-tm TREATMENT_MACHINE] [-pl PLAN_LABEL] [-pn PATIENT_NAME] [-rn REVIEWER_NAME]
-                [-rh RANGE_SHIFTER] [-rp REPAINTING] [-v] [-V]
+usage: dicomfix [-h] [-w WEIGHTS] [-o OUTPUT] [-a] [-dt] [-ic] [-i] [-ia] [-tr4] [-rs] [-p PRINT_SPOTS]
+                [-g GANTRY_ANGLES] [-d DUPLICATE_FIELDS] [-rd RESCALE_DOSE] [-rf RESCALE_FACTOR] [-rm]
+                [-tp TABLE_POSITION] [-tt] [-sp SNOUT_POSITION] [-tm TREATMENT_MACHINE] [-pl PLAN_LABEL]
+                [-pn PATIENT_NAME] [-rn REVIEWER_NAME] [-rh RANGE_SHIFTER] [-rp REPAINTING]
+                [-rl REPEAT_LAYER] [-rld REPEAT_LAYER_DELAY] [-mc] [-ds DUMP_SPOT] [-v] [-V]
                 [inputfile]
 
 Modify ECLIPSE DICOM proton therapy treatment plans.
