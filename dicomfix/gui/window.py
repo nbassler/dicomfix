@@ -685,8 +685,11 @@ class MainWindow(QMainWindow):
     def on_export(self):
         if self.plan is None:
             return
-        suggested = os.path.join(os.path.dirname(self.plan.filename),
-                                 "modified_" + os.path.basename(self.plan.filename))
+        # "_modified" as a suffix rather than a prefix, so the export sorts next to the
+        # plan it came from instead of being scattered to the top of the directory.
+        # splitext, not a replace: plan names like Plan5.5.dcm carry dots of their own.
+        stem, ext = os.path.splitext(os.path.basename(self.plan.filename))
+        suggested = os.path.join(os.path.dirname(self.plan.filename), f"{stem}_modified{ext}")
         output, _ = QFileDialog.getSaveFileName(
             self, "Export DICOM plan", suggested, "DICOM plans (*.dcm);;All files (*)")
         if not output:
