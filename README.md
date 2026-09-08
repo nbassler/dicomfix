@@ -117,10 +117,14 @@ $ pip install -e ".[gui]"     # or ".[dev]", which pulls in gui and web
 $ dicomfix-gui                # optionally: dicomfix-gui path/to/plan.dcm
 ```
 
-On Windows, download `dicomfix-gui.exe` from the
-[releases page](https://github.com/nbassler/dicomfix/releases) — no Python installation
-needed. The Linux binary on that page needs a few Qt system libraries, which PyQt6 does
-not bundle:
+On Windows, download `dicomfix-gui-windows-x86_64.zip` from the
+[releases page](https://github.com/nbassler/dicomfix/releases), unpack it, and run
+`dicomfix-gui.exe` from the extracted folder — no Python installation needed. Keep that
+folder together: the executable loads what it needs from the `_internal` directory beside
+it, so moving the `.exe` out on its own will not work.
+
+The Linux archive on that page unpacks the same way, and needs a few Qt system libraries
+which PyQt6 does not bundle:
 
 ```console
 $ sudo apt-get install libegl1 libgl1 libxkbcommon-x11-0
