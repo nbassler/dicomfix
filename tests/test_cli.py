@@ -286,6 +286,13 @@ def test_dump_spot_without_anything_to_place_is_refused(tmp_path):
         dicomfix.main.main([str(PLAN_FILE), '-ds=0,14', '-o', str(out)])
 
 
+def test_dump_spot_with_zero_delay_is_refused_for_the_delay_not_the_dump_spot(tmp_path):
+    """-rld=0 is the option being given, so -ds alongside it must be told the real problem."""
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="Delay spot meterset"):
+        dicomfix.main.main([str(PLAN_FILE), '-rl=2', '-rld=0', '-ds=0,14', '-o', str(out)])
+
+
 def test_repeat_layer_with_repainting_is_refused(tmp_path):
     """One divides the layer MU, the other multiplies it."""
     out = tmp_path / "out.dcm"

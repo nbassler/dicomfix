@@ -777,6 +777,18 @@ class TestRepeatLayerSpots:
         with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
             du.repeat_layer_spots(4)
 
+    def test_field_with_no_control_points_is_named_not_an_index_error(self, du):
+        """The spot count is read off icps[0], which an empty sequence does not have."""
+        du.dicom.IonBeamSequence[0].IonControlPointSequence = []
+        with pytest.raises(ValueError, match="empty IonControlPointSequence"):
+            du.repeat_layer_spots(4)
+
+    def test_field_without_beam_meterset_is_named_not_a_zero_division(self, du):
+        """A delay MU cannot be converted to a weight when the field delivers no MU."""
+        du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset = 0.0
+        with pytest.raises(ValueError, match="BeamMeterset"):
+            du.repeat_layer_spots(4, delay_mu=20.0)
+
     def test_warns_when_energies_do_not_decrease(self, du, caplog):
         """The constraint which makes a plan undeliverable, reported before the console."""
         icps = du.dicom.IonBeamSequence[0].IonControlPointSequence
@@ -876,6 +888,12 @@ class TestMinimizeCurrent:
     def test_field_without_total_weight_is_named_not_a_zero_division(self, du):
         du.dicom.IonBeamSequence[0].FinalCumulativeMetersetWeight = 0.0
         with pytest.raises(ValueError, match="FinalCumulativeMetersetWeight"):
+            du.minimize_current()
+
+    def test_field_without_beam_meterset_is_named_not_a_zero_division(self, du):
+        """Sizing the dummy spot divides by the MU per weight, so -mc alone reaches this."""
+        du.dicom.FractionGroupSequence[0].ReferencedBeamSequence[0].BeamMeterset = 0.0
+        with pytest.raises(ValueError, match="BeamMeterset"):
             du.minimize_current()
 
 

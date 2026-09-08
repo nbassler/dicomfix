@@ -177,7 +177,10 @@ class DicomUtil:
         # can never push them below MU_MIN.
         # It only says where dicomfix's own added spots go, so on its own it does nothing.
         # Saying so beats writing a plan which silently ignored it.
-        if config.dump_spot and not (config.minimize_current or config.repeat_layer_delay):
+        # "is not None" again, for the same reason as above: -rld=0 is the option being
+        # given, so -ds alongside it must not be refused for lacking it. The delay value
+        # itself is rejected by repeat_layer_spots().
+        if config.dump_spot is not None and not (config.minimize_current or config.repeat_layer_delay is not None):
             raise ValueError(
                 "-ds/--dump_spot needs -mc/--minimize_current or -rld/--repeat_layer_delay: "
                 "it moves the spots those options add, and on its own there are none.")
@@ -793,7 +796,8 @@ class DicomUtil:
         Raises:
             ValueError: If n is not an integer of at least 1, if delay_mu is below MU_MIN,
                 if spot_position lies outside the maximum field, or if a field has no
-                total meterset weight to convert MU against.
+                control points, no total meterset weight, or no beam meterset to convert
+                MU against.
             verify.PlanVerificationError: If the independent check finds the expanded plan
                 does not deliver the original pattern n times. It must not be saved.
         """
@@ -823,6 +827,14 @@ class DicomUtil:
 
         for j, ib in enumerate(d.IonBeamSequence):
             icps = ib.IonControlPointSequence
+
+            # The spot count is read off icps[0] below. An empty sequence is a malformed
+            # plan, and saying so beats an IndexError from deep inside the expansion.
+            if not icps:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has an empty IonControlPointSequence, "
+                    "so it has no layers to repeat.")
+
             original_final = float(ib.FinalCumulativeMetersetWeight)
 
             # Everything below is expressed per unit meterset weight, which a field with
@@ -836,6 +848,14 @@ class DicomUtil:
             rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
             original_beam_meterset = float(rb.BeamMeterset)
             meterset_per_weight = original_beam_meterset / original_final
+
+            # A field which declares a total weight but no MU to go with it. The delay MU
+            # below could not be converted to a weight, and repeating a field that
+            # delivers nothing is not what anyone is asking for either.
+            if meterset_per_weight <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has BeamMeterset {original_beam_meterset}, "
+                    "so its MU per meterset weight is undefined and its layers cannot be repeated.")
 
             self._warn_if_energies_do_not_decrease(ib, j)
 
@@ -935,7 +955,7 @@ class DicomUtil:
 
         Raises:
             ValueError: If spot_position lies outside the maximum field, or if a field has
-                no total meterset weight to convert MU against.
+                no total meterset weight and no beam meterset to convert MU against.
             verify.PlanVerificationError: If the independent check finds the plan does not
                 carry exactly the spots it should. It must not be saved.
         """
@@ -958,6 +978,13 @@ class DicomUtil:
             rb = d.FractionGroupSequence[0].ReferencedBeamSequence[j]
             original_beam_meterset = float(rb.BeamMeterset)
             meterset_per_weight = original_beam_meterset / original_final
+
+            # Same as in repeat_layer_spots(), and unconditional here: sizing the dummy
+            # spot divides by this, so a field with no MU has nothing to size it against.
+            if meterset_per_weight <= 0.0:
+                raise ValueError(
+                    f"Field #{j+1} '{ib.BeamName}' has BeamMeterset {original_beam_meterset}, "
+                    "so its MU per meterset weight is undefined and a 1 MU spot cannot be sized.")
 
             # Full precision, not rounded: the spot weights are FL, and it is the
             # cumulative weights which have to fit a DS. _renumber_cumulative_weights()
