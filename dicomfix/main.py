@@ -3,7 +3,6 @@ import sys
 
 from dicomfix.config import Config
 from dicomfix.config_parser import parse_arguments
-from dicomfix.dicomexport import DicomExport
 from dicomfix.dicomutil import DicomUtil  # Use the new DicomUtil class
 
 logger = logging.getLogger(__name__)
@@ -62,10 +61,6 @@ def main(args=None):
 
     # Save the modified DICOM plan
     dp.save(config.output)
-
-    # Export RACEHORSE file if requested
-    if config.export_racehorse:
-        DicomExport.export(dp.dicom, config.export_racehorse, "racehorse")
 
 
 if __name__ == '__main__':

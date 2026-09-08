@@ -29,8 +29,6 @@ options:
   -w, --weights WEIGHTS
                         Path to weights CSV file
   -o, --output OUTPUT   Path to output DICOM file
-  -e, --export_racehorse EXPORT_RACEHORSE
-                        Basename for spot list, in Varian RACEHORSE csv-format.
   -a, --approve         Set plan to APPROVED
   -dt, --date           Set RT date to now
   -ic, --intent_curative

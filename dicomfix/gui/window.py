@@ -20,7 +20,7 @@ import sys
 
 from PyQt6 import uic
 from PyQt6.QtCore import QObject, Qt
-from PyQt6.QtGui import QAction, QIcon, QKeySequence, QWheelEvent
+from PyQt6.QtGui import QAction, QFont, QIcon, QKeySequence, QWheelEvent
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -254,7 +254,25 @@ class MainWindow(QMainWindow):
         self.checkBox_anonymize.setVisible(False)
         self.checkBox_reviewername.setVisible(False)
 
-        self.plainTextEdit_inspect.setStyleSheet("font-family: monospace;")
+        # The inspect output is column-aligned, so it needs a fixed-width font. This was a
+        # style sheet with the CSS generic "monospace", which fontconfig resolves on Linux
+        # but Windows has no such family: there it fell back to the proportional UI font
+        # and the columns broke. Named families in preference order instead, with a style
+        # hint so Qt still picks something fixed-width if none of them are installed.
+        # setFont() rather than a style sheet, because a style sheet would override it.
+        # Ordered best-first per platform: Cascadia Mono ships with Windows 11 and
+        # Consolas with everything since Vista; Menlo with macOS; DejaVu and Liberation
+        # are on most Linux boxes. Courier New is last only because it is the one Windows
+        # is guaranteed to have -- it is a backstop, not a preference.
+        inspect_font = QFont()
+        inspect_font.setFamilies([
+            "Cascadia Mono", "Consolas",        # Windows
+            "Menlo",                            # macOS
+            "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",  # Linux
+            "Courier New",                      # last resort
+        ])
+        inspect_font.setStyleHint(QFont.StyleHint.Monospace)
+        self.plainTextEdit_inspect.setFont(inspect_font)
 
         # Qt Designer defaults spin boxes to 0..99, too narrow for these quantities.
         self.doubleSpinBox_gantry.setRange(0.0, 360.0)
@@ -633,9 +651,7 @@ class MainWindow(QMainWindow):
             self, f"About {APP_NAME}",
             f"<b>{APP_NAME} {short_version()}</b>"
             f"<p>Modify and inspect DICOM proton therapy treatment plans.</p>"
-            f"<p><tt>{__version__}</tt><br>"
-            f"<small>The part after '+' identifies the exact commit this was built from."
-            f"</small></p>"
+            f"<p><tt>{__version__}</tt></p>"
             f"<p>Python {sys.version.split()[0]}<br>"
             f"PyQt {PYQT_VERSION_STR}, Qt {QT_VERSION_STR}<br>"
             f"pydicom {pydicom.__version__}</p>"

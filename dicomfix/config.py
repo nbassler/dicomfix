@@ -20,7 +20,6 @@ class Config:
         self.inputfile = parsed_args.inputfile
         self.weights = parsed_args.weights
         self.output = parsed_args.output
-        self.export_racehorse = parsed_args.export_racehorse
         self.approve = parsed_args.approve
         self.date = parsed_args.date
         self.intent_curative = parsed_args.intent_curative

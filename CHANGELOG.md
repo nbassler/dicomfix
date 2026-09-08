@@ -82,8 +82,22 @@ All notable changes to dicomfix are documented here. Releases before 1.1.0 are o
   warning can be overridden. The Linux archives are unchanged in name and now unpack to a
   directory rather than a single file.
 
+### Removed
+
+- **`-e` / `--export_racehorse` and the `DicomExport` module are gone** (#31). Exporting is
+  [dicomexport](https://github.com/nbassler/dicomexport)'s job, and it already carries the
+  same RACEHORSE and spot list exporters alongside the TOPAS and MCPL ones dicomfix never
+  had; the copy here was an older parallel implementation. Its `export_spotlist` half was
+  reachable only from the library API, never from the command line. Reading a weights CSV
+  with `-w` is unaffected — that is an import, and stays.
+
 ### Fixed
 
+- **The GUI inspect pane now uses a fixed-width font on Windows.** It was set through a
+  style sheet asking for the CSS generic `monospace`, which fontconfig resolves on Linux
+  but which matches no family on Windows, so the pane fell back to the proportional UI
+  font and the column-aligned output did not line up. It now names real families in
+  preference order with a monospace style hint as a backstop.
 - `-rh=None` was silently ignored, leaving the range shifter in the output plan (#43)
 - `-i` crashed on plans with no table position set, which includes RayStation exports (#37)
 - `-rd` crashed on plans with two or more fields (#45)

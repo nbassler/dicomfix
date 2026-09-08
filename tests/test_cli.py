@@ -327,25 +327,3 @@ def test_fix_raystation_manufacturer_in_inspect(tmp_path):
     out = tmp_path / "out.dcm"
     dicomfix.main.main([str(PLAN_FILE), '-rs', '-o', str(out)])
     assert "Varian Medical System Particle Therapy" in inspect_output(out)
-
-
-# ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
-
-def test_export_racehorse_creates_csv(tmp_path):
-    out_dcm = tmp_path / "out.dcm"
-    export_base = str(tmp_path / "spots")
-    dicomfix.main.main([str(PLAN_FILE), '-e', export_base, '-o', str(out_dcm)])
-    csv_files = list(tmp_path.glob("*.csv"))
-    assert len(csv_files) > 0
-
-
-def test_export_racehorse_csv_content(tmp_path):
-    out_dcm = tmp_path / "out.dcm"
-    export_base = str(tmp_path / "spots")
-    dicomfix.main.main([str(PLAN_FILE), '-e', export_base, '-o', str(out_dcm)])
-    csv_files = list(tmp_path.glob("*.csv"))
-    content = csv_files[0].read_text()
-    assert "#HEADER" in content
-    assert "Index;Position x;Position y;Dose" in content
