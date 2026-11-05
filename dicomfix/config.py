@@ -107,12 +107,12 @@ class Config:
         Parse the snout position and convert it to millimeters (mm).
 
         Args:
-            snout_position (str): The snout position in centimeters.
+            snout_position (float or str): The snout position in centimeters.
 
         Returns:
             float: The parsed snout position in mm, or None if not provided.
         """
-        if snout_position:
+        if snout_position is not None:  # 0.0 is a position, not "not provided"
             return float(snout_position) * 10.0  # convert to mm
         return None
 

@@ -41,7 +41,7 @@ from dicomfix.config_parser import parse_arguments
 from dicomfix.dicomutil import DicomUtil
 from dicomfix.gui.model import (
     RANGE_SHIFTERS,
-    SNOUT_RETRACTED,
+    SNOUT_RETRACTED_CM,
     TREATMENT_MACHINES,
     EditSettings,
     PlanModel,
@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
             getattr(self, name).setRange(-200.0, 200.0)
         # The snout travels from 0 to fully retracted; _show_field widens the top end if
         # a plan ever carries a value beyond it.
-        self.doubleSpinBox_nozzle_position.setRange(0.0, SNOUT_RETRACTED)
+        self.doubleSpinBox_nozzle_position.setRange(0.0, SNOUT_RETRACTED_CM)
 
         for name, step in _WHEEL_STEPS.items():
             box = getattr(self, name)
@@ -507,7 +507,7 @@ class MainWindow(QMainWindow):
         # Widen the snout range rather than clamp: a value the spin box cannot represent
         # would be silently rewritten to the cap, queueing an -sp edit nobody asked for.
         self.doubleSpinBox_nozzle_position.setMaximum(
-            max(SNOUT_RETRACTED, field.snout_position))
+            max(SNOUT_RETRACTED_CM, field.snout_position))
 
         self.doubleSpinBox_gantry.setValue(field.gantry)
         self.doubleSpinBox_couch.setValue(field.couch)
@@ -636,7 +636,7 @@ class MainWindow(QMainWindow):
 
     def on_retract_snout(self):
         """Snap the snout to its fully retracted position, the common case for QA setups."""
-        self.doubleSpinBox_nozzle_position.setValue(SNOUT_RETRACTED)
+        self.doubleSpinBox_nozzle_position.setValue(SNOUT_RETRACTED_CM)
 
     def on_reset(self):
         """Discard queued edits and put every control back to the plan's own values."""

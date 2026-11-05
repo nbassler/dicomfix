@@ -136,9 +136,8 @@ class TestParseSnoutPosition:
         assert Config.parse_snout_position(None) is None
 
     def test_zero(self):
-        # NOTE: 0.0 is falsy in Python, so the method returns None for a 0-cm snout position.
-        # This is the current behaviour of the code.
-        assert Config.parse_snout_position(0.0) is None
+        # 0.0 is falsy, but still a snout position, so it must not read as "not provided"
+        assert Config.parse_snout_position(0.0) == pytest.approx(0.0)
 
     def test_string_input(self):
         # argparse type=float, but method also handles string

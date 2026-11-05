@@ -91,6 +91,38 @@ def inspect_output(dcm_path):
 
 
 # ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def test_verbose_logs_version(tmp_path):
+    """-v puts the version on stderr, so a log saved with 2> records what wrote the plan."""
+    from dicomfix.__version__ import __version__
+    result = subprocess.run(
+        ["python", "-m", "dicomfix.main", str(PLAN_FILE), "-v", "-o", str(tmp_path / "out.dcm")],
+        capture_output=True, text=True, check=True,
+    )
+    assert f"dicomfix {__version__}" in result.stderr
+
+
+def test_verbose_logs_command_line(tmp_path):
+    """Quoted, so an argument with a space survives being pasted back into a shell."""
+    out = tmp_path / "out.dcm"
+    result = subprocess.run(
+        ["python", "-m", "dicomfix.main", str(PLAN_FILE), "-v", "-pl=Test Plan", "-o", str(out)],
+        capture_output=True, text=True, check=True,
+    )
+    assert f"Command: dicomfix {PLAN_FILE} -v '-pl=Test Plan' -o {out}" in result.stderr
+
+
+def test_quiet_does_not_log_version(tmp_path):
+    result = subprocess.run(
+        ["python", "-m", "dicomfix.main", str(PLAN_FILE), "-o", str(tmp_path / "out.dcm")],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stderr == ""
+
+
+# ---------------------------------------------------------------------------
 # Plan metadata
 # ---------------------------------------------------------------------------
 
@@ -176,12 +208,21 @@ def test_rescale_minimize_no_spot_below_1mu(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_snout_position(tmp_path):
+    """Not 42.1 cm: the sample plan's snout is already there, so that proves nothing."""
     out = tmp_path / "out.dcm"
-    dicomfix.main.main([str(PLAN_FILE), '-sp=42.1', '-o', str(out)])
+    dicomfix.main.main([str(PLAN_FILE), '-sp=29.01', '-o', str(out)])
     assert "Snout Position" in inspect_output(out)
     du = DicomUtil(str(out))
     for ib in du.dicom.IonBeamSequence:
-        assert ib.IonControlPointSequence[0].SnoutPosition == pytest.approx(421.0)
+        assert ib.IonControlPointSequence[0].SnoutPosition == pytest.approx(290.1)
+
+
+def test_snout_position_zero_is_applied(tmp_path):
+    out = tmp_path / "out.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-sp=0', '-o', str(out)])
+    du = DicomUtil(str(out))
+    for ib in du.dicom.IonBeamSequence:
+        assert ib.IonControlPointSequence[0].SnoutPosition == pytest.approx(0.0)
 
 
 def test_table_position(tmp_path):
@@ -204,6 +245,57 @@ def test_gantry_angle_single_field(tmp_path):
     du = DicomUtil(str(out))
     for ib in du.dicom.IonBeamSequence:
         assert ib.IonControlPointSequence[0].GantryAngle == pytest.approx(90.0)
+
+
+# ---------------------------------------------------------------------------
+# TR4 wizard
+# ---------------------------------------------------------------------------
+
+def test_tr4_snout_defaults_to_retracted(tmp_path):
+    out = tmp_path / "out.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-sp=29.01', '-o', str(tmp_path / "in.dcm")])
+    dicomfix.main.main([str(tmp_path / "in.dcm"), '-tr4', '-o', str(out)])
+    for ib in DicomUtil(str(out)).dicom.IonBeamSequence:
+        assert ib.IonControlPointSequence[0].SnoutPosition == pytest.approx(421.0)
+
+
+def test_tr4_explicit_snout_position_wins(tmp_path):
+    """-tr4 -sp=X must give the same plan as spelling -tr4 out as -a -g=90 -tm=TR4 -sp=X."""
+    nf = len(DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence)
+    wizard, spelled = tmp_path / "wizard.dcm", tmp_path / "spelled.dcm"
+    dicomfix.main.main([str(PLAN_FILE), '-tr4', '-sp=29.01', '-o', str(wizard)])
+    dicomfix.main.main([str(PLAN_FILE), '-a', '-g=' + ",".join(["90"] * nf), '-tm', 'TR4',
+                        '-sp=29.01', '-o', str(spelled)])
+    w, s = DicomUtil(str(wizard)).dicom, DicomUtil(str(spelled)).dicom
+    assert w.ApprovalStatus == s.ApprovalStatus == "APPROVED"
+    for wib, sib in zip(w.IonBeamSequence, s.IonBeamSequence):
+        assert wib.TreatmentMachineName == sib.TreatmentMachineName == "TR4"
+        wicp, sicp = wib.IonControlPointSequence[0], sib.IonControlPointSequence[0]
+        assert wicp.SnoutPosition == sicp.SnoutPosition == pytest.approx(290.1)
+        assert wicp.GantryAngle == sicp.GantryAngle == pytest.approx(90.0)
+
+
+def test_tr4_with_gantry_90_is_accepted(tmp_path):
+    out = tmp_path / "out.dcm"
+    nf = len(DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence)
+    dicomfix.main.main([str(PLAN_FILE), '-tr4', '-g=' + ",".join(["90"] * nf), '-o', str(out)])
+    for ib in DicomUtil(str(out)).dicom.IonBeamSequence:
+        assert ib.IonControlPointSequence[0].GantryAngle == pytest.approx(90.0)
+
+
+def test_tr4_with_other_gantry_angle_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    nf = len(DicomUtil(str(PLAN_FILE)).dicom.IonBeamSequence)
+    with pytest.raises(ValueError, match="horizontal beam line"):
+        dicomfix.main.main([str(PLAN_FILE), '-tr4', '-g=' + ",".join(["45"] * nf), '-o', str(out)])
+    assert not out.exists()
+
+
+def test_tr4_with_other_treatment_machine_is_refused(tmp_path):
+    out = tmp_path / "out.dcm"
+    with pytest.raises(ValueError, match="treatment_machine"):
+        dicomfix.main.main([str(PLAN_FILE), '-tr4', '-tm', 'TR3', '-o', str(out)])
+    assert not out.exists()
 
 
 # ---------------------------------------------------------------------------

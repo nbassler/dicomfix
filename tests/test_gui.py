@@ -538,11 +538,11 @@ class TestDragAndDrop:
 
 class TestSnout:
     def test_retract_button_sets_fully_retracted_position(self, window):
-        from dicomfix.gui.model import SNOUT_RETRACTED
+        from dicomfix.gui.model import SNOUT_RETRACTED_CM
         window.load_plan(str(PLAN_FILE))
         window.doubleSpinBox_nozzle_position.setValue(20.0)
         window.pushButton_snout_retract.click()
-        assert window.doubleSpinBox_nozzle_position.value() == pytest.approx(SNOUT_RETRACTED)
+        assert window.doubleSpinBox_nozzle_position.value() == pytest.approx(SNOUT_RETRACTED_CM)
 
     def test_retracting_queues_a_snout_edit(self, window):
         window.load_plan(str(PLAN_FILE))
@@ -643,10 +643,10 @@ class TestSnoutRange:
     """The snout travels 0 to 42.1 cm, fully retracted being the far end."""
 
     def test_range_is_capped_at_fully_retracted(self, window):
-        from dicomfix.gui.model import SNOUT_RETRACTED
+        from dicomfix.gui.model import SNOUT_RETRACTED_CM
         window.load_plan(str(PLAN_FILE))
         assert window.doubleSpinBox_nozzle_position.minimum() == pytest.approx(0.0)
-        assert window.doubleSpinBox_nozzle_position.maximum() == pytest.approx(SNOUT_RETRACTED)
+        assert window.doubleSpinBox_nozzle_position.maximum() == pytest.approx(SNOUT_RETRACTED_CM)
 
     def test_a_value_beyond_the_cap_is_not_silently_clamped(self, window, tmp_path):
         """Clamping would rewrite the plan's own value and queue an -sp edit."""
