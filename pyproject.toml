@@ -84,8 +84,8 @@ target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-# C90 (mccabe) is intentionally not enabled: under flake8 it only ever ran with
-# --exit-zero, and 13 functions currently exceed max-complexity=6.
+# C90 (mccabe) is intentionally not enabled: it was never enforced, and a number of
+# functions exceed max-complexity=6 (see: ruff check --select C90).
 
 [tool.yapf]
 based_on_style = "pep8"

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 
+from dicomfix import dicomutil
 from dicomfix.__version__ import __version__
 from dicomfix.dicomutil import DicomUtil
 
@@ -21,11 +22,13 @@ def short_version():
     """
     return __version__.split("+", 1)[0]
 
+
 TREATMENT_MACHINES = ["TR1", "TR2", "TR3", "TR4"]
 RANGE_SHIFTERS = ["None", "RS2", "RS5"]
 
-# Snout position [cm] with the snout fully retracted.
-SNOUT_RETRACTED = 42.1
+# Snout position with the snout fully retracted, in the cm the GUI shows. Derived from the
+# mm value dicomutil writes, so the two cannot disagree.
+SNOUT_RETRACTED_CM = dicomutil.SNOUT_RETRACTED_MM * 0.1
 
 
 def describe_unsupported(path):

@@ -32,6 +32,11 @@ RANGE_SHIFTER_NONE = "NONE"
 # Water equivalent thickness [mm] of the available range shifters.
 RANGE_SHIFTER_WET = {"RS_2CM": 22.8, "RS_5CM": 57.0}
 
+# Snout position [mm] with the snout fully retracted.
+SNOUT_RETRACTED_MM = 421.0
+# TR4 is a horizontal beam line, so its "gantry" is fixed at this angle [deg].
+TR4_GANTRY_ANGLE = 90.0
+
 # The dump area, in mm: far out in the field, away from anything being measured, which is
 # where the spots dicomfix adds itself put their dose. Two options place spots there, for
 # different reasons -- a delay spot (-rld) so the scanning magnets have to sweep out and
@@ -124,13 +129,28 @@ class DicomUtil:
         if config.rescale_dose or config.rescale_factor or config.rescale_minimize or config.weights:
             self.rescale_plan(config)
 
+        # Before -g, -sp and -tm, so an explicit -sp overrides the retracted snout -tr4 sets
+        # by default. Gantry and machine are not defaults but what TR4 is, so instead of
+        # being overridden they are refused when they disagree, rather than silently lost.
+        if config.wizard_tr4:
+            if config.gantry_angles and any(a != TR4_GANTRY_ANGLE for a in config.gantry_angles):
+                raise ValueError(
+                    f"-g/--gantry_angles cannot be combined with -tr4/--wizard_tr4 unless all "
+                    f"angles are {TR4_GANTRY_ANGLE:g}: TR4 is a horizontal beam line.")
+            if config.treatment_machine and config.treatment_machine != "TR4":
+                raise ValueError(
+                    f"-tm/--treatment_machine {config.treatment_machine} cannot be combined "
+                    "with -tr4/--wizard_tr4, which sets the treatment machine to TR4.")
+            self.set_wizard_tr4()
+
         if config.gantry_angles:
             self.set_gantry_angles(config.gantry_angles)
 
         if config.table_position:
             self.set_table_position(config.table_position)
 
-        if config.snout_position:
+        # "is not None", not truthiness: -sp=0 is still a snout position being asked for.
+        if config.snout_position is not None:
             self.set_snout_position(config.snout_position)
 
         if config.treatment_machine:
@@ -144,9 +164,6 @@ class DicomUtil:
 
         if config.reviewer_name:
             self.set_reviewer_name(config.reviewer_name)
-
-        if config.wizard_tr4:
-            self.set_wizard_tr4()
 
         if config.print_spots:
             self.print_dicom_spot_comparison(config.print_spots)
@@ -1207,18 +1224,17 @@ class DicomUtil:
         Prepare the DICOM plan for TR4.
 
         This method sets the treatment machine name to "TR4", adjusts all gantry angles to 90 degrees,
-        sets the snout position to 421.0 mm, and approves the plan.
+        retracts the snout, and approves the plan. modify() applies an explicit snout
+        position afterwards, so the retracted snout is only a default.
         """
         d = self.dicom
-        d.ApprovalStatus = "APPROVED"
+        self.approve_plan()
         for ibs in d.IonBeamSequence:
             ibs.TreatmentMachineName = "TR4"
-            ibs.IonControlPointSequence[0].GantryAngle = 90.0
-            ibs.IonControlPointSequence[0].SnoutPosition = 421.0  # 42.1 cm
-        logger.info(f"All gantry angles set to   \
-                        {d.IonBeamSequence[-1].IonControlPointSequence[0].GantryAngle:8.2f} deg")
-        logger.info(f"All snout positions set to \
-                        {d.IonBeamSequence[-1].IonControlPointSequence[0].SnoutPosition*0.1:8.2f} cm")
+            ibs.IonControlPointSequence[0].GantryAngle = TR4_GANTRY_ANGLE
+            ibs.IonControlPointSequence[0].SnoutPosition = SNOUT_RETRACTED_MM
+        logger.info(f"All gantry angles set to   {TR4_GANTRY_ANGLE:8.2f} deg")
+        logger.info(f"All snout positions set to {SNOUT_RETRACTED_MM * 0.1:8.2f} cm")
 
     def add_table_tolerance_sequence(self):
         d = self.dicom
@@ -1319,7 +1335,7 @@ class DicomUtil:
                 ib.IonControlPointSequence[0].SnoutPosition = 0.0
 
             if not hasattr(ib.IonControlPointSequence[0], "SnoutPosition"):
-                ib.IonControlPointSequence[0].SnoutPosition = 421.0  # 42.1 cm
+                ib.IonControlPointSequence[0].SnoutPosition = SNOUT_RETRACTED_MM
             if not hasattr(ib.IonControlPointSequence[0], "MetersetRate"):
                 ib.IonControlPointSequence[0].MetersetRate = 100
             else:
