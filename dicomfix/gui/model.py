@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import logging
 
-from dicomfix.__version__ import __version__
 from dicomfix import dicomutil
+from dicomfix.__version__ import __version__
 from dicomfix.dicomutil import DicomUtil
 
 logger = logging.getLogger(__name__)
